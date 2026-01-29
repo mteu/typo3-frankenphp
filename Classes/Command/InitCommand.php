@@ -8,6 +8,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Core\Environment;
@@ -65,17 +66,26 @@ class InitCommand extends Command
             'localhost'
         ));
 
-        $workerCount = (string)$helper->ask($input, $output, new Question(
-            'FRANKENPHP_WORKER_COUNT [<info>5</info>]: ',
-            '2'
+        $workerMode = (bool)$helper->ask($input, $output, new ConfirmationQuestion(
+            'Enable FrankenPHP Worker Mode? [<info>yes</info>]: ',
+            true
         ));
 
-        $maxRequests = (string)$helper->ask($input, $output, new Question(
-            'MAX_REQUESTS [<info>500</info>]: ',
-            '500'
-        ));
+        $workerCount = null;
+        $maxRequests = null;
+        if ($workerMode) {
+            $workerCount = (string)$helper->ask($input, $output, new Question(
+                'FRANKENPHP_WORKER_COUNT [<info>5</info>]: ',
+                '2'
+            ));
 
-        $caddyFileContent = $this->buildCaddyfile($root);
+            $maxRequests = (string)$helper->ask($input, $output, new Question(
+                'MAX_REQUESTS [<info>500</info>]: ',
+                '500'
+            ));
+        }
+
+        $caddyFileContent = $this->buildCaddyfile($root, $workerMode);
         file_put_contents($caddyFilePath, $caddyFileContent);
         $io->success('Created Caddyfile');
 
@@ -124,8 +134,20 @@ class InitCommand extends Command
         return (int)$helper->ask($input, $output, $question);
     }
 
-    private function buildCaddyfile(string $root): string
+    private function buildCaddyfile(string $root, bool $workerMode): string
     {
+        $handleFile = '/index.php';
+        $workerBlock = '';
+        if ($workerMode) {
+            $handleFile = '/worker.php';
+            $workerBlock = <<<'WORKER'
+
+	frankenphp {
+		worker public/worker.php
+	}
+WORKER;
+        }
+
         return <<<CADDYFILE
 {
 	# Use non-standard ports to avoid permission issues
@@ -133,10 +155,7 @@ class InitCommand extends Command
 	https_port {\$HTTPS_PORT:8885}
 	auto_https disable_redirects
 	debug
-
-	frankenphp {
-		worker public/worker.php
-	}
+{$workerBlock}
 
 	# https://caddyserver.com/docs/caddyfile/directives#sorting-algorithm
 	order mercure after encode
@@ -179,7 +198,7 @@ http://{\$SERVER_NAME:localhost}:{\$HTTP_PORT:8888}, https://{\$SERVER_NAME:loca
 	# ALL non-static requests go to index.php
 	# REQUEST_URI is preserved automatically by Caddy's rewrite
 	handle {
-		rewrite * /index.php
+		rewrite * {$handleFile}
 		php
 	}
 }
@@ -193,9 +212,19 @@ CADDYFILE;
         string $serverName,
         int $httpPort,
         int $httpsPort,
-        string $workerCount,
-        string $maxRequests,
+        ?string $workerCount,
+        ?string $maxRequests,
     ): string {
+        $workerEnv = '';
+        if ($workerCount !== null && $maxRequests !== null) {
+            $workerEnv = <<<ENV
+
+# FrankenPHP worker configuration
+FRANKENPHP_WORKER_COUNT={$workerCount}
+MAX_REQUESTS={$maxRequests}
+ENV;
+        }
+
         return <<<ENV
 PHP_INI_SCAN_DIR={$phpIniScanDir}
 TYPO3_CONTEXT={$typo3Context}
@@ -203,11 +232,7 @@ TYPO3_CONTEXT={$typo3Context}
 SERVER_NAME={$serverName}
 HTTP_PORT={$httpPort}
 HTTPS_PORT={$httpsPort}
-
-# FrankenPHP configuration
-FRANKENPHP_WORKER_COUNT={$workerCount}
-
-MAX_REQUESTS={$maxRequests}
+{$workerEnv}
 
 ENV;
     }

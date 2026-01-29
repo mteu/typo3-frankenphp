@@ -24,6 +24,10 @@ $handler = static function () use ($container): void {
     // Without this, subsequent requests would have no output buffering.
     ob_start();
 
+    // Clear cached environment values from previous requests to prevent stale
+    // TYPO3_REQUEST_URL (and similar) from leaking into ServerRequestFactory::fromGlobals()
+    \TYPO3\CMS\Core\Utility\GeneralUtility::flushInternalRuntimeCaches();
+
     if ($container->has(\TYPO3\CMS\Core\Http\Application::class)) {
         $container->get(\TYPO3\CMS\Core\Http\Application::class)->run();
         return;
