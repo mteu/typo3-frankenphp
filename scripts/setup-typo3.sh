@@ -11,10 +11,14 @@ COMPOSER_JSON="${BUILD_DIR}/composer.json"
 TYPO3_VERSION_MARKER="${BUILD_DIR}/var/typo3-version"
 
 TYPO3_VERSION="${TYPO3_VERSION:-^14.3}"
-ADMIN_USER="${ADMIN_USER:-admin}"
-ADMIN_PASS="${ADMIN_PASS:-Password.1}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-typo3@example.com}"
-PROJECT_NAME="${PROJECT_NAME:-typo3-frankenphp}"
+
+# Variable names mirror those documented by `vendor/bin/typo3 setup --help`
+export TYPO3_SETUP_ADMIN_USERNAME="${TYPO3_SETUP_ADMIN_USERNAME:-admin}"
+export TYPO3_SETUP_ADMIN_PASSWORD="${TYPO3_SETUP_ADMIN_PASSWORD:-Password.1}"
+export TYPO3_SETUP_ADMIN_EMAIL="${TYPO3_SETUP_ADMIN_EMAIL:-typo3@example.com}"
+export TYPO3_PROJECT_NAME="${TYPO3_PROJECT_NAME:-typo3-frankenphp}"
+export TYPO3_SERVER_TYPE="${TYPO3_SERVER_TYPE:-other}"
+export TYPO3_DB_DRIVER="sqlite"
 
 log()  { printf '%s %s\n' "${LOG_PREFIX}" "$*"; }
 warn() { printf '%s %s\n' "${LOG_PREFIX}" "$*" >&2; }
@@ -124,19 +128,11 @@ run_typo3_setup() {
 
     log "Running 'typo3 setup' against the sqlite database ..."
     rm -rf "${BUILD_DIR}"/var/sqlite/*
-    (cd "${BUILD_DIR}" && vendor/bin/typo3 setup \
-        --driver=sqlite \
-        --admin-username="${ADMIN_USER}" \
-        --admin-user-password="${ADMIN_PASS}" \
-        --admin-email="${ADMIN_EMAIL}" \
-        --project-name="${PROJECT_NAME}" \
-        --server-type=other \
-        --force \
-        --no-interaction)
-}
-
-clear_typo3_cache() {
-    [ -x "${BUILD_DIR}/vendor/bin/typo3" ] || return 0
+    (cd "${BUILD_DIR}" && vendor/bin/typo3 setup --force --no-interaction)
+    # Cache is only cleared right after a fresh setup. Clearing it while a
+    # FrankenPHP worker is already running breaks the worker — it has stale
+    # paths cached in memory and cannot recreate the dirs on the fly, which
+    # causes 500s until the worker is restarted.
     rm -rf "${BUILD_DIR}/var/cache" 2>/dev/null || true
 }
 
@@ -196,7 +192,8 @@ EOF
 
 # Cleanup processed files
 cleanup_processedfile() {
-    "${BUILD_DIR}/bin/typo3" cleanup:localprocessedfiles --all
+    [ -x "${BUILD_DIR}/vendor/bin/typo3" ] || return 0
+    (cd "${BUILD_DIR}" && vendor/bin/typo3 cleanup:localprocessedfiles --all --no-interaction)
 }
 
 # Start setup
@@ -205,10 +202,9 @@ check_prerequisites
 generate_composer_json
 ensure_composer_install
 run_typo3_setup
-clear_typo3_cache
 configure_imagemagick
 cleanup_processedfile
 
 log "TYPO3 is ready."
 log "Login:"
-log "  ${ADMIN_USER} / ${ADMIN_PASS}"
+log "  ${TYPO3_SETUP_ADMIN_USERNAME} / ${TYPO3_SETUP_ADMIN_PASSWORD}"
