@@ -1,10 +1,16 @@
 # TYPO3 FrankenPHP integration
 
-Provides a easy way to generate required files:
+Provides one CLI command that generates everything needed to run TYPO3 under FrankenPHP:
 
 ```
 vendor/bin/typo3 frankenphp:init
+# or without prompts:
+vendor/bin/typo3 frankenphp:init --no-interaction
+# overwrite existing files:
+vendor/bin/typo3 frankenphp:init --no-interaction --force
 ```
+
+Composer also runs the command automatically on package install / update / `dump-autoload` via the TYPO3 installer-scripts mechanism, so users who don't touch the CLI still get a working setup. Without `--force`, the command preserves files that already exist (warns instead of overwriting), so a `composer update` won't clobber a hand-edited `Caddyfile`, `.env`, or `public/worker.php`.
 
 **The files:**
 

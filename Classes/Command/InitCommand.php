@@ -43,7 +43,10 @@ class InitCommand extends Command
         $helper = $this->getHelper('question');
         $root = str_replace('//', '/', $this->deriveWebDir($projectPath));
 
-        $io->info('Set environment variables (.env):');
+        if($input->isInteractive()) {
+            $io->block('Set environment variables (.env):', 'INFO', 'fg=green', '');
+        }
+
         $httpPort = $this->askPort($helper, $input, $output, 'HTTP_PORT', 8888);
         $httpsPort = $this->askPort($helper, $input, $output, 'HTTPS_PORT', 8885);
 
@@ -101,7 +104,60 @@ class InitCommand extends Command
             $io->success('Created .env');
         }
 
+        $workerFilePath = Environment::getPublicPath() . '/worker.php';
+        if ($workerMode && $this->fileShouldBeCreated($workerFilePath, $io, $force)) {
+            $workerContent = $this->buildWorkerPhp($workerFilePath, $projectPath);
+            if ($workerContent === null) {
+                $io->warning('Could not generate worker.php — template file missing.');
+            } else {
+                file_put_contents($workerFilePath, $workerContent);
+                $io->success('Created ' . $workerFilePath);
+            }
+        }
+
         return Command::SUCCESS;
+    }
+
+    /**
+     * Read the worker.php template and substitute the autoload-require line
+     * with a path that is correct relative to the target file's location.
+     * Mirrors what TYPO3's EntryPoint installer used to do; consolidating it
+     * here means a single CLI invocation produces every generated file.
+     */
+    private function buildWorkerPhp(string $workerFilePath, string $projectPath): ?string
+    {
+        $templatePath = dirname(__DIR__, 2) . '/Resources/Private/Php/worker.php';
+        if (!is_file($templatePath)) {
+            return null;
+        }
+        $content = (string)file_get_contents($templatePath);
+
+        $autoloadPath = $projectPath . '/vendor/autoload.php';
+        $requireExpression = $this->computeShortestRequirePath($workerFilePath, $autoloadPath);
+
+        // Replace `require __DIR__ . '<relative path>'` (the template's
+        // placeholder) with the freshly-computed shortest-path expression.
+        return preg_replace(
+            "/require __DIR__ \\. '[^']*'/",
+            'require ' . $requireExpression,
+            $content,
+            1
+        );
+    }
+
+    /**
+     * Build the shortest PHP require expression for one file relative to
+     * another. Delegates to Composer's Filesystem when available, otherwise
+     * returns the conventional `dirname(__DIR__) . '/vendor/autoload.php'`
+     * which is correct for the standard `<project>/public/worker.php` and
+     * `<project>/vendor/autoload.php` layout.
+     */
+    private function computeShortestRequirePath(string $from, string $to): string
+    {
+        if (class_exists(\Composer\Util\Filesystem::class)) {
+            return (new \Composer\Util\Filesystem())->findShortestPathCode($from, $to);
+        }
+        return "dirname(__DIR__) . '/vendor/autoload.php'";
     }
 
     private function deriveWebDir(string $projectPath): string
