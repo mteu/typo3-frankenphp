@@ -38,23 +38,7 @@ class InitCommand extends Command
 
         $envFilePath = $projectPath . '/.env';
 
-        $existingFiles = [];
-        if (file_exists($caddyFilePath)) {
-            $existingFiles[] = 'Caddyfile';
-        }
-        if (file_exists($envFilePath)) {
-            $existingFiles[] = '.env';
-        }
-
         $force = (bool)$input->getOption('force');
-        if ($existingFiles !== [] && !$force) {
-            $io->warning(sprintf(
-                '%s already %s. Pass --force to overwrite.',
-                implode(' and ', $existingFiles),
-                count($existingFiles) > 1 ? 'exist' : 'exists'
-            ));
-            return Command::FAILURE;
-        }
 
         $helper = $this->getHelper('question');
         $root = str_replace('//', '/', $this->deriveWebDir($projectPath));
@@ -97,21 +81,25 @@ class InitCommand extends Command
             ));
         }
 
-        $caddyFileContent = $this->buildCaddyfile($root, $workerMode);
-        file_put_contents($caddyFilePath, $caddyFileContent);
-        $io->success('Created Caddyfile');
+        if($this->fileShouldBeCreated($caddyFilePath, $io, $force)) {
+            $caddyFileContent = $this->buildCaddyfile($root, $workerMode);
+            file_put_contents($caddyFilePath, $caddyFileContent);
+            $io->success('Created Caddyfile');
+        }
 
-        $envContent = $this->buildEnvFile(
-            $phpIniScanDir,
-            $typo3Context,
-            $serverName,
-            $httpPort,
-            $httpsPort,
-            $workerCount,
-            $maxRequests
-        );
-        file_put_contents($envFilePath, $envContent);
-        $io->success('Created .env');
+        if($this->fileShouldBeCreated($envFilePath, $io, $force)) {
+            $envContent = $this->buildEnvFile(
+                $phpIniScanDir,
+                $typo3Context,
+                $serverName,
+                $httpPort,
+                $httpsPort,
+                $workerCount,
+                $maxRequests
+            );
+            file_put_contents($envFilePath, $envContent);
+            $io->success('Created .env');
+        }
 
         return Command::SUCCESS;
     }
@@ -193,6 +181,35 @@ http://{\$SERVER_NAME:localhost}:{\$HTTP_PORT:8888}, https://{\$SERVER_NAME:loca
 
 	{\$CADDY_SERVER_EXTRA_DIRECTIVES}
 
+	# Browser-navigation UX guard: install-tool controllers other than `layout`
+	# (maintenance/settings/upgrade/environment/icon) return JsonResponse
+	# envelopes meant for the install tool's own JS to inject into a modal.
+	# A user pasting such a URL into the address bar would see raw JSON. We
+	# detect top-level browser navigations via Sec-Fetch headers and redirect
+	# to the install-tool dashboard so the user can click into the right tile.
+	# Legitimate AJAX calls (X-Requested-With: XMLHttpRequest) bypass and
+	# reach the controller normally.
+	@install_browser_ajax {
+		query __typo3_install=*
+		query install[action]=*
+		header Sec-Fetch-Mode navigate
+		header Sec-Fetch-Dest document
+		not header X-Requested-With XMLHttpRequest
+	}
+	redir @install_browser_ajax /?__typo3_install 302
+
+	# TYPO3 Install Tool recovery URL (?__typo3_install) bypasses the worker
+	# and runs through TYPO3's canonical public/index.php in regular PHP
+	# execution. index.php already detects ?__typo3_install and calls
+	# Bootstrap::init with \$failsafe=true to expose InstallApplication,
+	# so we just route to it instead of shipping our own duplicate.
+	# Reach the install tool at: https://…/?__typo3_install
+	@typo3_install query __typo3_install=*
+	handle @typo3_install {
+		rewrite * /index.php
+		php
+	}
+
 	# Canonical FrankenPHP routing: php_server serves existing static files,
 	# routes everything else through the worker entry point.
 	# REQUEST_URI is preserved (Caddy sets it from the original client request,
@@ -235,5 +252,15 @@ HTTPS_PORT={$httpsPort}
 {$workerEnv}
 
 ENV;
+    }
+
+    private function fileShouldBeCreated(string $file, OutputInterface $io, bool $force = false): bool
+    {
+        if (file_exists($file) && !$force) {
+            $io->warning(sprintf('%s already exist. Pass --force to overwrite.', $file));
+            return false;
+        }
+
+        return true;
     }
 }
