@@ -7,6 +7,7 @@ namespace Ochorocho\FrankenPhp\Command;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
@@ -19,6 +20,16 @@ use TYPO3\CMS\Core\Core\Environment;
 )]
 class InitCommand extends Command
 {
+    protected function configure(): void
+    {
+        $this->addOption(
+            'force',
+            'f',
+            InputOption::VALUE_NONE,
+            'Overwrite Caddyfile and .env if they already exist.'
+        );
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
@@ -35,9 +46,10 @@ class InitCommand extends Command
             $existingFiles[] = '.env';
         }
 
-        if ($existingFiles !== []) {
+        $force = (bool)$input->getOption('force');
+        if ($existingFiles !== [] && !$force) {
             $io->warning(sprintf(
-                '%s already %s. Skipping to avoid overwriting.',
+                '%s already %s. Pass --force to overwrite.',
                 implode(' and ', $existingFiles),
                 count($existingFiles) > 1 ? 'exist' : 'exists'
             ));
@@ -136,17 +148,10 @@ class InitCommand extends Command
 
     private function buildCaddyfile(string $root, bool $workerMode): string
     {
-        $handleFile = '/index.php';
-        $workerBlock = '';
-        if ($workerMode) {
-            $handleFile = '/worker.php';
-            $workerBlock = <<<'WORKER'
-
-	frankenphp {
-		worker public/worker.php
-	}
-WORKER;
-        }
+        $entryScript = $workerMode ? '/worker.php' : '/index.php';
+        $workerBlock = $workerMode
+            ? "\n\tfrankenphp {\n\t\tworker {\$FRANKENPHP_WORKER_FILE:{$root}/worker.php} {\$FRANKENPHP_WORKER_COUNT:2}\n\t}\n"
+            : '';
 
         return <<<CADDYFILE
 {
@@ -156,7 +161,6 @@ WORKER;
 	auto_https disable_redirects
 	debug
 {$workerBlock}
-
 	# https://caddyserver.com/docs/caddyfile/directives#sorting-algorithm
 	order mercure after encode
 	order vulcain after reverse_proxy
@@ -189,17 +193,13 @@ http://{\$SERVER_NAME:localhost}:{\$HTTP_PORT:8888}, https://{\$SERVER_NAME:loca
 
 	{\$CADDY_SERVER_EXTRA_DIRECTIVES}
 
-	# Serve existing static files directly (CSS, JS, images, etc.)
-	@static file
-	handle @static {
-		file_server
-	}
-
-	# ALL non-static requests go to index.php
-	# REQUEST_URI is preserved automatically by Caddy's rewrite
-	handle {
-		rewrite * {$handleFile}
-		php
+	# Canonical FrankenPHP routing: php_server serves existing static files,
+	# routes everything else through the worker entry point.
+	# REQUEST_URI is preserved (Caddy sets it from the original client request,
+	# not the post-rewrite URI) so TYPO3 can route /typo3/module/* correctly.
+	php_server {
+		index {$entryScript}
+		try_files {path} {$entryScript}
 	}
 }
 
