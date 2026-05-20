@@ -3,7 +3,7 @@
 Provides a easy way to generate required files:
 
 ```
-vendor/bin/typo3 frankenphp:ini
+vendor/bin/typo3 frankenphp:init
 ```
 
 **The files:**
