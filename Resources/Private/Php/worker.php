@@ -18,6 +18,13 @@ use TYPO3\CMS\Install\Http\Application as InstallApplication;
 
 ignore_user_abort(true);
 
+// Marker used by Ochorocho\FrankenPhp\EventListener\AddFrankenPhpModeToSystemInformation
+// to distinguish worker-mode requests (this file) from per-request /index.php
+// execution (the install-tool recovery path). Set once per worker process and
+// remains true for every request the worker handles; not visible to /index.php
+// since that runs in a fresh PHP interpreter.
+const TYPO3_FRANKENPHP_WORKER_MODE = true;
+
 // BOOT PHASE — runs once per worker process.
 $classLoader = require __DIR__ . '/../../../../../../vendor/autoload.php';
 SystemEnvironmentBuilder::run();

@@ -12,6 +12,10 @@ vendor/bin/typo3 frankenphp:init --no-interaction --force
 
 Composer also runs the command automatically on package install / update / `dump-autoload` via the TYPO3 installer-scripts mechanism, so users who don't touch the CLI still get a working setup. Without `--force`, the command preserves files that already exist (warns instead of overwriting), so a `composer update` won't clobber a hand-edited `Caddyfile`, `.env`, or `public/worker.php`.
 
+## Diagnostics
+
+The TYPO3 backend's **System Information** dropdown (the info icon in the topbar) shows a **Worker Mode** row — `Enabled` when the current request is being served by the long-running FrankenPHP worker, `Disabled` when served by per-request PHP execution (e.g. the install-tool recovery URL via `/index.php`). The row icon is the FrankenPHP mascot (the skeleton elephant from `frankenphp.dev`). Use it to quickly verify that requests you expect to hit the worker actually do.
+
 **The files:**
 
   * Worker entrypoint: `public/worker.php` — long-running FrankenPHP worker for the full backend + frontend (`HttpApplication`).
