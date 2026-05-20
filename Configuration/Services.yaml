@@ -6,3 +6,8 @@ services:
 
   Ochorocho\FrankenPhp\:
     resource: '../Classes/*'
+
+  # Worker bootstrap pulls this from the container directly, so it must be public.
+  Ochorocho\FrankenPhp\Worker\StateSnapshotService:
+    public: true
+    shared: true

@@ -1,0 +1,160 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Ochorocho\FrankenPhp\Worker;
+
+use Ochorocho\FrankenPhp\Event\WorkerRequestStartingEvent;
+use Psr\Container\ContainerInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\UserAspect;
+use TYPO3\CMS\Core\Context\WorkspaceAspect;
+use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry;
+use TYPO3\CMS\Core\Page\AssetCollector;
+use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\DocHeaderComponent;
+use TYPO3\CMS\Backend\Template\Components\MenuRegistry;
+use TYPO3\CMS\Backend\Template\Components\MetaInformation;
+
+/**
+ * Captures TYPO3 singleton state immediately after Bootstrap::init() and
+ * restores it at the start of every worker request.
+ *
+ * Background: DI-managed singletons (PageRenderer, AssetCollector,
+ * MetaTagManagerRegistry, FlashMessageService, Context) accumulate state
+ * across requests in worker mode. GeneralUtility::resetSingletonInstances()
+ * only clears the makeInstance cache, not DI singletons.
+ *
+ * The snapshot-and-restore pattern uses TYPO3's public getState/updateState
+ * APIs where available, with a small Closure::bind shim for
+ * FlashMessageService whose queues field is private.
+ */
+final class StateSnapshotService
+{
+    public function capture(ContainerInterface $container): WorkerStateSnapshot
+    {
+        return new WorkerStateSnapshot(
+            pageRendererState: $container->get(PageRenderer::class)->getState(),
+            assetCollectorState: $container->get(AssetCollector::class)->getState(),
+            metaTagRegistryState: $container->get(MetaTagManagerRegistry::class)->getState(),
+        );
+    }
+
+    public function restore(WorkerStateSnapshot $snapshot, ContainerInterface $container): void
+    {
+        // Stale process-level state must die before any TYPO3 code runs.
+        $this->resetProcessState();
+        $this->resetGlobals();
+        GeneralUtility::flushInternalRuntimeCaches();
+
+        // Context aspects: middleware re-populates per request but if a previous
+        // request crashed mid-flight, stale aspects can reach PageRenderer and
+        // produce undefined-$GLOBALS access errors.
+        $context = $container->get(Context::class);
+        $context->setAspect('backend.user', new UserAspect(null));
+        $context->setAspect('frontend.user', new UserAspect(null));
+        $context->setAspect('workspace', new WorkspaceAspect(0));
+
+        // DI singletons with public state APIs.
+        $container->get(PageRenderer::class)->updateState($snapshot->pageRendererState);
+        $container->get(AssetCollector::class)->updateState($snapshot->assetCollectorState);
+        $container->get(MetaTagManagerRegistry::class)->updateState($snapshot->metaTagRegistryState);
+
+        // FlashMessageService has no public reset; the queues are a private property.
+        $flashMessageService = $container->get(FlashMessageService::class);
+        \Closure::bind(static function () use ($flashMessageService): void {
+            $flashMessageService->flashMessageQueues = [];
+        }, null, FlashMessageService::class)();
+
+        // Backend DocHeaderComponent and its sub-components (ButtonBar, MenuRegistry,
+        // MetaInformation) are #[Autoconfigure(public: true)] services — Symfony DI
+        // makes them shared by default, so the same instance is reused across worker
+        // requests. ButtonBar->buttons[] accumulates: every controller call to
+        // $view->getDocHeaderComponent()->getButtonBar()->addButton() appends, and
+        // nothing clears the array between requests. Result: View / Edit / Cache /
+        // Reload / Share buttons appear once after request 1, twice after request 2,
+        // etc., visually breaking the doc-header layout after a few navigations.
+        //
+        // Reset the mutable state on the shared instances back to post-boot defaults.
+        // All fields here are protected/private; Closure::bind grants access without
+        // forcing TYPO3 Core to add public reset methods.
+        if ($container->has(DocHeaderComponent::class)) {
+            $docHeader = $container->get(DocHeaderComponent::class);
+            \Closure::bind(static function () use ($docHeader): void {
+                // Re-instantiate the ButtonBar (matches what the constructor does).
+                $docHeader->buttonBar = GeneralUtility::makeInstance(ButtonBar::class);
+                $docHeader->metaInformation = GeneralUtility::makeInstance(MetaInformation::class);
+                $docHeader->breadcrumbContext = null;
+                $docHeader->enabled = true;
+                $docHeader->languageSelector = null;
+                $docHeader->automaticShortcutButton = null;
+                $docHeader->automaticReloadButton = true;
+            }, null, DocHeaderComponent::class)();
+        }
+        if ($container->has(ButtonBar::class)) {
+            $buttonBar = $container->get(ButtonBar::class);
+            \Closure::bind(static function () use ($buttonBar): void {
+                $buttonBar->buttons = [];
+            }, null, ButtonBar::class)();
+        }
+        if ($container->has(MenuRegistry::class)) {
+            $menuRegistry = $container->get(MenuRegistry::class);
+            \Closure::bind(static function () use ($menuRegistry): void {
+                $menuRegistry->menus = [];
+            }, null, MenuRegistry::class)();
+        }
+        if ($container->has(MetaInformation::class)) {
+            $metaInformation = $container->get(MetaInformation::class);
+            \Closure::bind(static function () use ($metaInformation): void {
+                $metaInformation->recordArray = [];
+            }, null, MetaInformation::class)();
+        }
+
+        // Doctrine connections cached statically per table — close them so the
+        // next request gets fresh connections (avoids "MySQL has gone away").
+        $container->get(ConnectionPool::class)->resetConnections();
+
+        // Let downstream extensions reset their own state.
+        if ($container->has(EventDispatcherInterface::class)) {
+            $container->get(EventDispatcherInterface::class)
+                ->dispatch(new WorkerRequestStartingEvent($container));
+        }
+    }
+
+    private function resetProcessState(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+        $_SESSION = [];
+    }
+
+    private function resetGlobals(): void
+    {
+        // Cleared by Bootstrap normally; unset so a stale TYPO3_REQUEST does
+        // not leak into ServerRequestFactory::fromGlobals().
+        unset($GLOBALS['BE_USER'], $GLOBALS['LANG'], $GLOBALS['TYPO3_REQUEST']);
+
+        // SystemEnvironmentBuilder::run() sets these once at boot. In worker
+        // mode they freeze at the worker start time; refresh per request so
+        // TYPO3's "now" matches reality.
+        $now = time();
+        $GLOBALS['EXEC_TIME'] = $now;
+        $GLOBALS['ACCESS_TIME'] = $now - $now % 60;
+        $GLOBALS['SIM_EXEC_TIME'] = $GLOBALS['EXEC_TIME'];
+        $GLOBALS['SIM_ACCESS_TIME'] = $GLOBALS['ACCESS_TIME'];
+
+        // NOTE: $GLOBALS['T3_SERVICES'] is intentionally NOT reset here.
+        // It is a process-lifetime service registry populated once at
+        // Bootstrap::init() via ExtensionManagementUtility::addService()
+        // calls in sysext ext_localconf.php files. Wiping it per request
+        // erases the auth/scheduler/etc service registrations and silently
+        // breaks login (no service of type "auth" found → AuthenticationService
+        // never runs → user always sees "Your login attempt did not succeed").
+    }
+}
