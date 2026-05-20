@@ -97,24 +97,27 @@ final class StateSnapshotService
                 $docHeader->automaticShortcutButton = null;
                 $docHeader->automaticReloadButton = true;
             }, null, DocHeaderComponent::class)();
+
+            // MenuRegistry is constructor-injected into DocHeaderComponent as a
+            // readonly property, and the class has no #[Autoconfigure(public: true)]
+            // — so $container->has(MenuRegistry::class) is false and the readonly
+            // can't be re-assigned with the makeInstance trick we use for
+            // ButtonBar / MetaInformation. Reach the live instance via the public
+            // getMenuRegistry() and clear its protected $menus[] array directly.
+            // Without this, every backend module's addMenu() call leaks into
+            // subsequent requests — visible as ghost "Module action" dropdowns
+            // (e.g. Extension Manager's "Installed Extensions" appearing on
+            // Page TSconfig).
+            $menuRegistry = $docHeader->getMenuRegistry();
+            \Closure::bind(static function () use ($menuRegistry): void {
+                $menuRegistry->menus = [];
+            }, null, MenuRegistry::class)();
         }
         if ($container->has(ButtonBar::class)) {
             $buttonBar = $container->get(ButtonBar::class);
             \Closure::bind(static function () use ($buttonBar): void {
                 $buttonBar->buttons = [];
             }, null, ButtonBar::class)();
-        }
-        if ($container->has(MenuRegistry::class)) {
-            $menuRegistry = $container->get(MenuRegistry::class);
-            \Closure::bind(static function () use ($menuRegistry): void {
-                $menuRegistry->menus = [];
-            }, null, MenuRegistry::class)();
-        }
-        if ($container->has(MetaInformation::class)) {
-            $metaInformation = $container->get(MetaInformation::class);
-            \Closure::bind(static function () use ($metaInformation): void {
-                $metaInformation->recordArray = [];
-            }, null, MetaInformation::class)();
         }
 
         // SystemInformationToolbarItem — same shared-singleton accumulation as

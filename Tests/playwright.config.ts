@@ -13,14 +13,21 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
-  /* Run tests in files in parallel */
-  fullyParallel: true,
+  /* Tests within the same file run serially (each file is one TYPO3 backend
+   * "user session" doing heavy iframe navigation). Files across projects
+   * still parallelize via `workers` below. */
+  fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  /* Cap workers at 1: the dev sandbox runs SQLite + 2-worker FrankenPHP.
+   * Three browser projects hammering the backend in parallel (each driving
+   * many iframe navigations) overloads the worker pool and produces flaky
+   * results. Serial execution costs ~30 s for the full 3-browser suite,
+   * which is fine for a dev loop; override with `--workers=N` if your
+   * stack can handle more. */
+  workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

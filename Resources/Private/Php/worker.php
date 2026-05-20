@@ -124,6 +124,17 @@ $handler = static function () use ($container, $stateService, $snapshot, $applic
             echo $isDevelopment ? $traceText : 'Internal Server Error';
         }
     } finally {
+        // PHP-FPM auto-commits sessions to disk at request shutdown;
+        // FrankenPHP workers do not. Without this call, anything written to
+        // $_SESSION during the request (e.g. the install tool's
+        // BackendModuleController setting up the Typo3InstallTool session
+        // before redirecting to its iframe AJAX endpoint) never lands on
+        // disk before the browser's follow-up request reads it — surfacing
+        // as "The Install Tool session expired" 403s across Maintenance /
+        // Settings / Upgrade.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
         while (ob_get_level()) {
             ob_end_flush();
         }
