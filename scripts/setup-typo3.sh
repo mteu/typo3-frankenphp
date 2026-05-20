@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+LOG_PREFIX="${LOG_PREFIX:-[typo3-frankenphp]}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="${SCRIPT_DIR}/../Build"
+SETTINGS_FILE="${BUILD_DIR}/config/system/settings.php"
+ADDITIONAL_PHP="${BUILD_DIR}/config/system/additional.php"
+COMPOSER_JSON="${BUILD_DIR}/composer.json"
+TYPO3_VERSION_MARKER="${BUILD_DIR}/var/typo3-version"
+
+TYPO3_VERSION="${TYPO3_VERSION:-^14.3}"
+ADMIN_USER="${ADMIN_USER:-admin}"
+ADMIN_PASS="${ADMIN_PASS:-Password.1}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-typo3@example.com}"
+PROJECT_NAME="${PROJECT_NAME:-typo3-frankenphp}"
+
+log()  { printf '%s %s\n' "${LOG_PREFIX}" "$*"; }
+warn() { printf '%s %s\n' "${LOG_PREFIX}" "$*" >&2; }
+die()  { warn "$*"; exit 1; }
+
+check_prerequisites() {
+    local missing=()
+    local cmd
+    for cmd in composer php sqlite3; do
+        command -v "${cmd}" >/dev/null 2>&1 || missing+=("${cmd}")
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        warn "Missing required tools: ${missing[*]}"
+        warn "  macOS:                       brew install ${missing[*]}"
+        warn "  Debian/Ubuntu (incl. WSL):   sudo apt-get install ${missing[*]}"
+        warn "  Fedora/RHEL:                 sudo dnf install ${missing[*]}"
+        die  "Install the listed tools and re-run."
+    fi
+    command -v frankenphp >/dev/null 2>&1 \
+        || warn "Note: 'frankenphp' is not on PATH — install it before 'frankenphp run'."
+}
+
+# Create composer.json
+generate_composer_json() {
+    mkdir -p "$(dirname "${TYPO3_VERSION_MARKER}")"
+    local current=""
+    [ -f "${TYPO3_VERSION_MARKER}" ] && current="$(cat "${TYPO3_VERSION_MARKER}")"
+
+    if [ -f "${COMPOSER_JSON}" ] && [ "${TYPO3_VERSION}" = "${current}" ]; then
+        return
+    fi
+
+    if [ -n "${current}" ] && [ "${TYPO3_VERSION}" != "${current}" ]; then
+        log "Switching TYPO3 from ${current} to ${TYPO3_VERSION} ..."
+        rm -rf "${BUILD_DIR}/vendor" "${BUILD_DIR}/composer.lock" \
+               "${BUILD_DIR}/config/system" "${BUILD_DIR}/var/cache" "${BUILD_DIR}/var/log"
+        rm -rf "${BUILD_DIR}/public/typo3" "${BUILD_DIR}/public/_assets" \
+               "${BUILD_DIR}/public/index.php" 2>/dev/null || true
+    else
+        log "Generating Build/composer.json (TYPO3 ${TYPO3_VERSION}) ..."
+    fi
+
+    # Write composer.json file
+    cat > "${COMPOSER_JSON}" <<EOF
+{
+    "name": "ochorocho/typo3-frankenphp-dev",
+    "description": "Development TYPO3 installation for working on ochorocho/frankenphp.",
+    "type": "project",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": "^8.3",
+        "ochorocho/frankenphp": "@dev",
+        "typo3/cms-backend": "${TYPO3_VERSION}",
+        "typo3/cms-fluid-styled-content": "${TYPO3_VERSION}",
+        "typo3/cms-core": "${TYPO3_VERSION}",
+        "typo3/cms-extbase": "${TYPO3_VERSION}",
+        "typo3/cms-extensionmanager": "${TYPO3_VERSION}",
+        "typo3/cms-filelist": "${TYPO3_VERSION}",
+        "typo3/cms-fluid": "${TYPO3_VERSION}",
+        "typo3/cms-frontend": "${TYPO3_VERSION}",
+        "typo3/cms-info": "${TYPO3_VERSION}",
+        "typo3/cms-install": "${TYPO3_VERSION}",
+        "typo3/cms-seo": "${TYPO3_VERSION}",
+        "typo3/cms-setup": "${TYPO3_VERSION}",
+        "typo3/cms-lowlevel": "${TYPO3_VERSION}",
+        "typo3/cms-tstemplate": "${TYPO3_VERSION}",
+        "typo3/cms-impexp": "${TYPO3_VERSION}",
+        "typo3/theme-camino": "${TYPO3_VERSION}"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.64",
+        "phpstan/phpstan": "^1.12",
+        "typo3/coding-standards": "^0.8"
+    },
+    "repositories": [
+        { "type": "path", "url": "../", "options": { "symlink": true } }
+    ],
+    "config": {
+        "allow-plugins": {
+            "typo3/cms-composer-installers": true,
+            "typo3/class-alias-loader": true
+        },
+        "sort-packages": true,
+        "vendor-dir": "vendor"
+    },
+    "extra": { "typo3/cms": { "web-dir": "public" } }
+}
+EOF
+    printf '%s\n' "${TYPO3_VERSION}" > "${TYPO3_VERSION_MARKER}"
+}
+
+# Install composer packages
+ensure_composer_install() {
+    if [ -f "${BUILD_DIR}/vendor/autoload.php" ] \
+        && [ -x "${BUILD_DIR}/vendor/bin/typo3" ] \
+        && [ -x "${BUILD_DIR}/vendor/bin/phpstan" ]; then
+        log "composer dependencies already installed, skipping."
+        return
+    fi
+    log "Running 'composer update' in Build/ ..."
+    (cd "${BUILD_DIR}" && composer update --no-interaction --no-progress)
+}
+
+# Setup TYPO3
+run_typo3_setup() {
+    [ -f "${SETTINGS_FILE}" ] && return
+
+    log "Running 'typo3 setup' against the sqlite database ..."
+    rm -rf "${BUILD_DIR}"/var/sqlite/*
+    (cd "${BUILD_DIR}" && vendor/bin/typo3 setup \
+        --driver=sqlite \
+        --admin-username="${ADMIN_USER}" \
+        --admin-user-password="${ADMIN_PASS}" \
+        --admin-email="${ADMIN_EMAIL}" \
+        --project-name="${PROJECT_NAME}" \
+        --server-type=other \
+        --force \
+        --no-interaction)
+}
+
+clear_typo3_cache() {
+    [ -x "${BUILD_DIR}/vendor/bin/typo3" ] || return 0
+    rm -rf "${BUILD_DIR}/var/cache" 2>/dev/null || true
+}
+
+# Configure ImageMagick path
+configure_imagemagick() {
+    [ -f "${ADDITIONAL_PHP}" ] && return   # respect existing user customization
+
+    local magick_bin=""
+
+    # Explicit override — CI, containers, custom builds.
+    if [ -n "${MAGICK_BIN:-}" ]; then
+        if [ -x "${MAGICK_BIN}" ] && "${MAGICK_BIN}" -version >/dev/null 2>&1; then
+            magick_bin="${MAGICK_BIN}"
+        else
+            warn "MAGICK_BIN='${MAGICK_BIN}' is not executable or fails -version;"
+            warn "  falling back to auto-detection."
+        fi
+    fi
+
+    # Auto-detect ImageMagick for GFX.processor_path
+    if [ -z "${magick_bin}" ]; then
+        local candidate
+        for candidate in \
+                /opt/homebrew/bin/magick \
+                /usr/bin/magick \
+                /usr/local/bin/magick \
+                "$(command -v magick 2>/dev/null || true)" \
+                "$(command -v convert 2>/dev/null || true)"; do
+            if [ -n "${candidate}" ] && [ -x "${candidate}" ] \
+                    && "${candidate}" -version >/dev/null 2>&1; then
+                magick_bin="${candidate}"
+                break
+            fi
+        done
+    fi
+
+    if [ -z "${magick_bin}" ]; then
+        warn "No working ImageMagick found — image processing will be disabled."
+        warn "Install one:"
+        warn "  macOS:                       brew install imagemagick"
+        warn "  Debian/Ubuntu (incl. WSL):   sudo apt-get install imagemagick"
+        warn "  Fedora/RHEL:                 sudo dnf install ImageMagick"
+        warn "Or set MAGICK_BIN=/absolute/path/to/magick and re-run."
+        return
+    fi
+
+    local magick_dir
+    magick_dir="$(dirname "${magick_bin}")/"
+    log "Configuring GFX.processor_path=${magick_dir}"
+    cat > "${ADDITIONAL_PHP}" <<EOF
+<?php
+// Auto-generated by scripts/setup-typo3.sh.
+// TYPO3's default GFX.processor_path is /usr/bin/, which is empty on macOS.
+\$GLOBALS['TYPO3_CONF_VARS']['GFX']['processor_path'] = '${magick_dir}';
+EOF
+}
+
+# Cleanup processed files
+cleanup_processedfile() {
+    "${BUILD_DIR}/bin/typo3" cleanup:localprocessedfiles --all
+}
+
+# Start setup
+mkdir -p "${BUILD_DIR}"
+check_prerequisites
+generate_composer_json
+ensure_composer_install
+run_typo3_setup
+clear_typo3_cache
+configure_imagemagick
+cleanup_processedfile
+
+log "TYPO3 is ready."
+log "Login:"
+log "  ${ADMIN_USER} / ${ADMIN_PASS}"

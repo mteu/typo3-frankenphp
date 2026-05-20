@@ -1,1 +1,4 @@
-Tests/*
+/.idea
+/Tests/*
+/Build/
+/composer.lock
