@@ -16,10 +16,12 @@ use TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry;
 use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Backend\Backend\ToolbarItems\SystemInformationToolbarItem;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
 use TYPO3\CMS\Backend\Template\Components\DocHeaderComponent;
 use TYPO3\CMS\Backend\Template\Components\MenuRegistry;
 use TYPO3\CMS\Backend\Template\Components\MetaInformation;
+use TYPO3\CMS\Backend\Toolbar\InformationStatus;
 
 /**
  * Captures TYPO3 singleton state immediately after Bootstrap::init() and
@@ -113,6 +115,24 @@ final class StateSnapshotService
             \Closure::bind(static function () use ($metaInformation): void {
                 $metaInformation->recordArray = [];
             }, null, MetaInformation::class)();
+        }
+
+        // SystemInformationToolbarItem — same shared-singleton accumulation as
+        // DocHeaderComponent. Its #[Autoconfigure(public: true)] makes the instance
+        // shared, and getDropDown() → collectInformation() appends to
+        // $systemInformation[] on every call. After N requests every entry
+        // (TYPO3 Version, Web Server, PHP Version, Database, etc.) appears N times
+        // in the toolbar dropdown. The badge severity also stays at its highest
+        // historical value rather than reflecting the current request.
+        if ($container->has(SystemInformationToolbarItem::class)) {
+            $systemInfo = $container->get(SystemInformationToolbarItem::class);
+            \Closure::bind(static function () use ($systemInfo): void {
+                $systemInfo->systemInformation = [];
+                $systemInfo->systemMessages = [];
+                $systemInfo->systemMessageTotalCount = 0;
+                $systemInfo->highestSeverity = InformationStatus::INFO;
+                $systemInfo->severityBadgeClass = '';
+            }, null, SystemInformationToolbarItem::class)();
         }
 
         // Doctrine connections cached statically per table — close them so the
