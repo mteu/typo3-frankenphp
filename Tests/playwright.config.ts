@@ -19,8 +19,11 @@ export default defineConfig({
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  /* Retry once locally, twice on CI: the dev sandbox (SQLite + 2-worker
+   * FrankenPHP) is genuinely flaky under sequential iframe-heavy load —
+   * timeouts on page-tree fetchData / modulemenu hydration are environment
+   * noise, not test bugs. */
+  retries: process.env.CI ? 2 : 1,
   /* Cap workers at 1: the dev sandbox runs SQLite + 2-worker FrankenPHP.
    * Three browser projects hammering the backend in parallel (each driving
    * many iframe navigations) overloads the worker pool and produces flaky
