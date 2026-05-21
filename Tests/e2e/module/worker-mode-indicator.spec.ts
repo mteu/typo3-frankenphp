@@ -18,8 +18,14 @@ test('System Information shows Worker Mode: Enabled on worker-served requests', 
         .waitFor({state: 'attached', timeout: 30_000});
 
     await page.locator('button').filter({hasText: 'System Information'}).first().click();
-    await page.waitForTimeout(1000);
-
-    await expect(page.getByText('Worker Mode', {exact: false})).toBeVisible();
-    await expect(page.getByText('Enabled', {exact: true}).first()).toBeVisible();
+    // Wait for the System Information dropdown's title row to actually become
+    // visible; on webkit in CI the dropdown takes longer than a fixed timeout
+    // to render, so `getByText('Worker Mode').toBeVisible()` here doubles as
+    // the open-detection signal and lets later assertions race the same row.
+    await expect(page.getByText('Worker Mode', {exact: false}).first()).toBeVisible({timeout: 15_000});
+    // The listener (Classes/EventListener/AddFrankenPhpModeToSystemInformation.php)
+    // emits the value as "Enabled" optionally followed by " ---- <worker count>".
+    // Anchor at start with a word boundary so the assertion still works after
+    // the debug suffix changes, but doesn't accidentally match "Disabled".
+    await expect(page.getByText(/^Enabled\b/).first()).toBeVisible({timeout: 15_000});
 });

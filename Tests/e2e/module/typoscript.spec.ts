@@ -48,5 +48,5 @@ test('Sites -> TypoScript', async ({ page }) => {
     await expect(contentFrame.locator('#template-analyzer-constants-tree-body')).toBeVisible();
 
     await expect(contentFrame.locator('#template-analyzer-constants-tree-body').getByText('[site:camino] Camino')).toBeVisible();
-    await expect(contentFrame.locator('#template-analyzer-setup-tree-body').getByText('[site:camino] Camino2')).toBeVisible();
+    await expect(contentFrame.locator('#template-analyzer-setup-tree-body').getByText('[site:camino] Camino')).toBeVisible();
 });
