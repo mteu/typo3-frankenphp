@@ -20,14 +20,14 @@ test('Maintenance: no "Install Tool session expired" message', async ({page}) =>
         .waitFor({state: 'attached', timeout: 15_000});
 
     await page.locator('#modulemenu a[data-moduleroute-identifier="system_maintenance"]').click();
-    await page.locator('input[name="password"]').fill(PASS);
-    await page.locator('input[name="password"]').press('Enter');
-
-    // if (/\/typo3\/sudo-mode\//.test(page.url())) {
-    //     await page.locator('input[name="password"]').fill(PASS);
-    //     await page.locator('input[name="password"]').press('Enter');
-    //     await page.waitForURL((u) => !u.pathname.includes('/sudo-mode/'), {timeout: 15_000});
-    // }
+    // The sudo prompt only appears the first time the user enters an Admin
+    // Tools module (the grant is cached for the session lifetime). When
+    // earlier specs already triggered Maintenance, sudo is silent here.
+    if (/\/typo3\/sudo-mode\//.test(page.url())) {
+        await page.locator('input[name="password"]').fill(PASS);
+        await page.locator('input[name="password"]').press('Enter');
+        await page.waitForURL((u) => !u.pathname.includes('/sudo-mode/'), {timeout: 15_000});
+    }
     // Give the router.js AJAX chain time to settle.
     await page.waitForLoadState('networkidle', {timeout: 15_000}).catch(() => {});
     await page.waitForTimeout(2000);
