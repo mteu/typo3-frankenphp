@@ -20,7 +20,6 @@ use TYPO3\CMS\Backend\Backend\ToolbarItems\SystemInformationToolbarItem;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
 use TYPO3\CMS\Backend\Template\Components\DocHeaderComponent;
 use TYPO3\CMS\Backend\Template\Components\MenuRegistry;
-use TYPO3\CMS\Backend\Template\Components\MetaInformation;
 use TYPO3\CMS\Backend\Toolbar\InformationStatus;
 
 /**
@@ -99,10 +98,11 @@ final class StateSnapshotService
             $flashMessageService->flashMessageQueues = [];
         }, null, FlashMessageService::class)();
 
-        // Backend DocHeaderComponent and its sub-components (ButtonBar, MenuRegistry,
-        // MetaInformation) are #[Autoconfigure(public: true)] services — Symfony DI
-        // makes them shared by default, so the same instance is reused across worker
-        // requests. ButtonBar->buttons[] accumulates: every controller call to
+        // Backend DocHeaderComponent and its sub-components (ButtonBar,
+        // MenuRegistry) are #[Autoconfigure(public: true)] services — Symfony
+        // DI makes them shared by default, so the same instance is reused
+        // across worker requests. ButtonBar->buttons[] accumulates: every
+        // controller call to
         // $view->getDocHeaderComponent()->getButtonBar()->addButton() appends, and
         // nothing clears the array between requests. Result: View / Edit / Cache /
         // Reload / Share buttons appear once after request 1, twice after request 2,
@@ -116,7 +116,9 @@ final class StateSnapshotService
             \Closure::bind(static function () use ($docHeader): void {
                 // Re-instantiate the ButtonBar (matches what the constructor does).
                 $docHeader->buttonBar = GeneralUtility::makeInstance(ButtonBar::class);
-                $docHeader->metaInformation = GeneralUtility::makeInstance(MetaInformation::class);
+                // breadcrumbContext is the only render-state on DocHeader v14
+                // (the legacy $metaInformation property is deprecated, @internal,
+                // and not read by docHeaderContent() — leaving it alone).
                 $docHeader->breadcrumbContext = null;
                 $docHeader->enabled = true;
                 $docHeader->languageSelector = null;
@@ -128,7 +130,7 @@ final class StateSnapshotService
             // readonly property, and the class has no #[Autoconfigure(public: true)]
             // — so $container->has(MenuRegistry::class) is false and the readonly
             // can't be re-assigned with the makeInstance trick we use for
-            // ButtonBar / MetaInformation. Reach the live instance via the public
+            // ButtonBar. Reach the live instance via the public
             // getMenuRegistry() and clear its protected $menus[] array directly.
             // Without this, every backend module's addMenu() call leaks into
             // subsequent requests — visible as ghost "Module action" dropdowns

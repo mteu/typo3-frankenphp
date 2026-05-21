@@ -4,7 +4,7 @@
     "description": "FrankenPHP worker mode support for TYPO3",
     "license": "GPL-2.0-or-later",
     "require": {
-        "typo3/cms-core": "^13.0 || ^14.3 || 15.*@dev"
+        "typo3/cms-core": "^14.3 || 15.*@dev"
     },
     "autoload": {
         "psr-4": {
