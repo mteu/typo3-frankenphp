@@ -8,8 +8,5 @@ $config->getFinder()
         __DIR__ . '/Classes',
         __DIR__ . '/Configuration',
         __DIR__ . '/Tests',
-    ])
-    ->append([
-        __DIR__ . '/ext_localconf.php',
     ]);
 return $config;

@@ -5,7 +5,6 @@ parameters:
     - Classes
     - Configuration
     - Tests
-    - ext_localconf.php
 
   # PHPStan looks for vendor/autoload.php next to phpstan.neon by default.
   # Our dev install autoload lives in Build/vendor; both bootstrapFiles
