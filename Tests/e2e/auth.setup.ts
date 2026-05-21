@@ -1,7 +1,7 @@
 import {test as setup, expect} from '@playwright/test';
 import path from 'node:path';
 
-const BASE_URL = process.env.TYPO3_BASE_URL ?? 'https://localhost/';
+const BASE_URL = process.env.TYPO3_BASE_URL ?? 'https://localhost:8885/';
 // Reuse the canonical env-var names from `vendor/bin/typo3 setup --help`
 // so a single export covers both `scripts/setup-typo3.sh` and these tests.
 const USER = process.env.TYPO3_SETUP_ADMIN_USERNAME ?? 'admin';

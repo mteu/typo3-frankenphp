@@ -49,7 +49,7 @@ export default defineConfig({
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    baseURL: process.env.TYPO3_BASE_URL ?? 'https://localhost/',
+    baseURL: process.env.TYPO3_BASE_URL ?? 'https://localhost:8885/',
     // The dev server uses Caddy's `tls internal` (self-signed cert).
     ignoreHTTPSErrors: true,
 

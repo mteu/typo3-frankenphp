@@ -95,12 +95,12 @@ jobs:
       - name: Bootstrap TYPO3 sandbox
         run: bash scripts/setup-typo3.sh
 
-      - name: Regenerate frankenphp config (--force, dev profile)
+      - name: Regenerate frankenphp config (--force, prod profile)
         # Belt-and-braces: the Composer installer hook (RunFrankenphpInit)
         # should already have produced these files via setup-typo3.sh.
         # Explicitly regenerating defends against the hook ever regressing.
         working-directory: Build
-        run: vendor/bin/typo3 frankenphp:init --no-interaction --force --profile=prod
+        run: vendor/bin/typo3 frankenphp:init --no-interaction --force --profile=dev
 
       - name: Start FrankenPHP
         working-directory: Build
