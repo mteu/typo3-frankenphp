@@ -19,7 +19,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo, curl, zip
+          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo, curl, zip, phar
           tools: composer:v2
           coverage: none
 
@@ -41,7 +41,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo
+          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo, phar
           tools: composer:v2
           coverage: none
 
@@ -68,7 +68,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo, curl, zip, opcache
+          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo, curl, zip, opcache, phar
           tools: composer:v2
           coverage: none
           ini-values: memory_limit=512M, max_input_vars=1500
