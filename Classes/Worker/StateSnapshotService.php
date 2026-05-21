@@ -54,6 +54,32 @@ final class StateSnapshotService
         $this->resetGlobals();
         GeneralUtility::flushInternalRuntimeCaches();
 
+        // Targeted cache.runtime invalidation. Two backend services cache
+        // page-bound data under fixed keys (no page UID), and PHP-FPM clears
+        // cache.runtime at process death so they assume the data is always
+        // current. In worker mode the cache survives and clicking page B in
+        // the page tree returns page A's still-cached content elements.
+        //
+        // Flushing all of cache.runtime breaks the login flow (something in
+        // the auth/SiteFinder/LocalizationFactory chain relies on data
+        // populated at boot), so remove just the offending keys.
+        //
+        //   - ContentFetcher_fetchedContentRecords
+        //     (cms-backend/View/BackendLayout/ContentFetcher.php)
+        //   - backend-layout-view-selected-backend-layouts
+        //   - backend-layout-view-selected-combined-identifiers
+        //     (cms-backend/View/BackendLayoutView.php)
+        if ($container->has('cache.runtime')) {
+            $runtimeCache = $container->get('cache.runtime');
+            foreach ([
+                'ContentFetcher_fetchedContentRecords',
+                'backend-layout-view-selected-backend-layouts',
+                'backend-layout-view-selected-combined-identifiers',
+            ] as $key) {
+                $runtimeCache->remove($key);
+            }
+        }
+
         // Context aspects: middleware re-populates per request but if a previous
         // request crashed mid-flight, stale aspects can reach PageRenderer and
         // produce undefined-$GLOBALS access errors.
