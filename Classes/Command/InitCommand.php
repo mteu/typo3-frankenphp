@@ -6,6 +6,7 @@ namespace Ochorocho\FrankenPhp\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -58,6 +59,7 @@ class InitCommand extends Command
 
         $force = (bool)$input->getOption('force');
 
+        /** @var QuestionHelper $helper */
         $helper = $this->getHelper('question');
         $root = str_replace('//', '/', $this->deriveWebDir($projectPath));
 
@@ -66,11 +68,11 @@ class InitCommand extends Command
         // dev ports they can still override interactively or via .env later.
         $defaults = $isProd
             ? ['httpPort' => 80, 'httpsPort' => 443, 'context' => 'Production',
-               'workerCount' => '4', 'maxRequests' => '1000']
+                'workerCount' => '4', 'maxRequests' => '1000']
             : ['httpPort' => 8888, 'httpsPort' => 8885, 'context' => 'Development',
-               'workerCount' => '2', 'maxRequests' => '500'];
+                'workerCount' => '2', 'maxRequests' => '500'];
 
-        if($input->isInteractive()) {
+        if ($input->isInteractive()) {
             $io->block(sprintf('Set environment variables (.env) for profile "%s":', $profile), 'INFO', 'fg=green', '');
         }
 
@@ -111,13 +113,13 @@ class InitCommand extends Command
             ));
         }
 
-        if($this->fileShouldBeCreated($caddyFilePath, $io, $force)) {
+        if ($this->fileShouldBeCreated($caddyFilePath, $io, $force)) {
             $caddyFileContent = $this->buildCaddyfile($root, $workerMode, $isProd);
             file_put_contents($caddyFilePath, $caddyFileContent);
             $io->success('Created Caddyfile');
         }
 
-        if($this->fileShouldBeCreated($envFilePath, $io, $force)) {
+        if ($this->fileShouldBeCreated($envFilePath, $io, $force)) {
             $envContent = $this->buildEnvFile(
                 $phpIniScanDir,
                 $typo3Context,
@@ -416,7 +418,7 @@ HTTPS_PORT={$httpsPort}
 ENV;
     }
 
-    private function fileShouldBeCreated(string $file, OutputInterface $io, bool $force = false): bool
+    private function fileShouldBeCreated(string $file, SymfonyStyle $io, bool $force = false): bool
     {
         if (file_exists($file) && !$force) {
             $io->warning(sprintf('%s already exist. Pass --force to overwrite.', $file));

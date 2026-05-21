@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phpstan:
+    name: PHPStan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo, curl, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Bootstrap TYPO3 sandbox
+        # Materializes Build/ (gitignored) and composer-installs everything
+        # including the dev tools (phpstan, php-cs-fixer, typo3/coding-standards).
+        run: bash scripts/setup-typo3.sh
+
+      - name: PHPStan
+        working-directory: Build
+        run: vendor/bin/phpstan analyse ../Classes --level=5 --no-progress --memory-limit=512M -c ../phpstan.neon
+
+  cs-fixer:
+    name: PHP-CS-Fixer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo
+          tools: composer:v2
+          coverage: none
+
+      - name: Bootstrap TYPO3 sandbox
+        run: bash scripts/setup-typo3.sh
+
+      - name: PHP-CS-Fixer (dry run)
+        working-directory: Build
+        # --dry-run makes the job fail (non-zero exit) without modifying files;
+        # --diff prints the would-be patch into the CI log for easy review.
+        run: vendor/bin/php-cs-fixer fix ../Classes --config=../php-cs-fixer.php --dry-run --diff --using-cache=no
+
+  playwright:
+    name: Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # Pinned; bump explicitly. Tracking `latest` would let an upstream
+      # release break our CI without any commit in this repo.
+      FRANKENPHP_VERSION: 'v1.12.3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo, curl, zip, opcache
+          tools: composer:v2
+          coverage: none
+          ini-values: memory_limit=512M, max_input_vars=1500
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install system deps
+        # ImageMagick is required by TYPO3's GFX processor; sqlite3 by
+        # scripts/setup-typo3.sh's prerequisite check.
+        run: sudo apt-get update && sudo apt-get install -y imagemagick sqlite3
+
+      - name: Install FrankenPHP
+        # Note: the FrankenPHP project moved from github.com/dunglas/frankenphp
+        # to github.com/php/frankenphp upstream.
+        run: |
+          curl -fL "https://github.com/php/frankenphp/releases/download/${FRANKENPHP_VERSION}/frankenphp-linux-x86_64" \
+            -o /tmp/frankenphp
+          chmod +x /tmp/frankenphp
+          sudo mv /tmp/frankenphp /usr/local/bin/frankenphp
+          frankenphp version
+
+      - name: Bootstrap TYPO3 sandbox
+        run: bash scripts/setup-typo3.sh
+
+      - name: Regenerate frankenphp config (--force, dev profile)
+        # Belt-and-braces: the Composer installer hook (RunFrankenphpInit)
+        # should already have produced these files via setup-typo3.sh.
+        # Explicitly regenerating defends against the hook ever regressing.
+        working-directory: Build
+        run: vendor/bin/typo3 frankenphp:init --no-interaction --force --profile=dev
+
+      - name: Start FrankenPHP
+        working-directory: Build
+        run: |
+          nohup frankenphp run -c Caddyfile -e .env > frankenphp.log 2>&1 &
+          echo $! > frankenphp.pid
+          for i in $(seq 1 30); do
+            if curl -sk -o /dev/null https://localhost:8885/typo3/login; then
+              echo "frankenphp is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frankenphp didn't come up — log follows:"
+          cat frankenphp.log
+          exit 1
+
+      - name: Install Playwright + browsers
+        working-directory: Tests
+        # Tests/ has no package-lock.json committed yet, so `npm install`
+        # rather than `npm ci`.  --with-deps asks Playwright to apt-install
+        # OS-level browser dependencies (fonts, GTK, X11 libs); webkit
+        # segfaults on ubuntu-latest without them.
+        run: |
+          npm install
+          npx playwright install --with-deps
+
+      - name: Run Playwright
+        working-directory: Tests
+        # CI=true triggers the `retries: 2` branch in playwright.config.ts
+        # plus forbidOnly, so leftover `test.only(...)` also fails the build.
+        run: npm test
+        env:
+          CI: 'true'
+
+      - name: Stop FrankenPHP
+        if: always()
+        working-directory: Build
+        run: |
+          if [ -f frankenphp.pid ]; then kill "$(cat frankenphp.pid)" || true; fi
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: Tests/playwright-report/
+          retention-days: 7
+
+      - name: Upload FrankenPHP log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frankenphp-log
+          path: Build/frankenphp.log
+          retention-days: 7

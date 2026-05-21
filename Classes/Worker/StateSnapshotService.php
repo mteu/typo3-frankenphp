@@ -7,6 +7,11 @@ namespace Ochorocho\FrankenPhp\Worker;
 use Ochorocho\FrankenPhp\Event\WorkerRequestStartingEvent;
 use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Backend\Backend\ToolbarItems\SystemInformationToolbarItem;
+use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\DocHeaderComponent;
+use TYPO3\CMS\Backend\Template\Components\MenuRegistry;
+use TYPO3\CMS\Backend\Toolbar\InformationStatus;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Context\WorkspaceAspect;
@@ -16,11 +21,6 @@ use TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry;
 use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Backend\Backend\ToolbarItems\SystemInformationToolbarItem;
-use TYPO3\CMS\Backend\Template\Components\ButtonBar;
-use TYPO3\CMS\Backend\Template\Components\DocHeaderComponent;
-use TYPO3\CMS\Backend\Template\Components\MenuRegistry;
-use TYPO3\CMS\Backend\Toolbar\InformationStatus;
 
 /**
  * Captures TYPO3 singleton state immediately after Bootstrap::init() and
