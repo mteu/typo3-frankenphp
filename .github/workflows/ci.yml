@@ -29,7 +29,7 @@ jobs:
         run: composer install
 
       - name: PHPStan
-        run: vendor/bin/phpstan analyse -c ../phpstan.neon --no-progress --memory-limit=512M
+        run: vendor/bin/phpstan analyse -c phpstan.neon --no-progress --memory-limit=512M
 
   cs-fixer:
     name: PHP-CS-Fixer
@@ -50,7 +50,7 @@ jobs:
       - name: PHP-CS-Fixer (dry run)
         # --dry-run makes the job fail (non-zero exit) without modifying files;
         # --diff prints the would-be patch into the CI log for easy review.
-        run: vendor/bin/php-cs-fixer fix --config=../php-cs-fixer.php --dry-run --diff --using-cache=no
+        run: vendor/bin/php-cs-fixer fix --config=php-cs-fixer.php --dry-run --diff --using-cache=no
 
   playwright:
     name: Playwright
