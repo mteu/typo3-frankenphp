@@ -6,14 +6,11 @@ parameters:
     - Configuration
     - Tests
 
-  # PHPStan looks for vendor/autoload.php next to phpstan.neon by default.
-  # Our dev install autoload lives in Build/vendor; both bootstrapFiles
-  # (executes the file) and scanDirectories (walks PSR-4 paths for class
-  # discovery) are needed for class resolution to succeed.
+  # Root vendor/autoload.php is enough — composer/composer, typo3/cms-core,
+  # typo3/cms-backend are all in require-dev so PHPStan can resolve every
+  # symbol Classes/ + Configuration/ touch.
   bootstrapFiles:
-    - Build/vendor/autoload.php
-  scanDirectories:
-    - Build/vendor/typo3/cms-core/Classes
+    - vendor/autoload.php
 
   # Don't error on unmatched ignored errors during baseline rebuilds.
   reportUnmatchedIgnoredErrors: false
