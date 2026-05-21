@@ -25,7 +25,7 @@ final readonly class AddFrankenPhpModeToSystemInformation
     {
         $event->getToolbarItem()->addSystemInformation(
             'Worker Mode',
-            $this->isWorkerModeEnabled() ? 'Enabled' : 'Disabled',
+            ($this->isWorkerModeEnabled() ? 'Enabled' : 'Disabled') . ' ---- ' . getenv('FRANKENPHP_WORKER_COUNT'),
             'frankenphp',
         );
     }

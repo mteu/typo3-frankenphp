@@ -20,6 +20,9 @@ use TYPO3\CMS\Core\Core\Environment;
 )]
 class InitCommand extends Command
 {
+    private const string PROFILE_DEV = 'dev';
+    private const string PROFILE_PROD = 'prod';
+
     protected function configure(): void
     {
         $this->addOption(
@@ -28,11 +31,26 @@ class InitCommand extends Command
             InputOption::VALUE_NONE,
             'Overwrite Caddyfile, .env, php.ini and worker.php if they already exist.'
         );
+        $this->addOption(
+            'profile',
+            null,
+            InputOption::VALUE_REQUIRED,
+            'Configuration profile: dev (default) or prod. Drives Caddyfile / .env / php.ini / worker.php defaults.',
+            self::PROFILE_DEV
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        $profile = (string)$input->getOption('profile');
+        if (!in_array($profile, [self::PROFILE_DEV, self::PROFILE_PROD], true)) {
+            $io->error(sprintf('Invalid --profile "%s": must be "dev" or "prod".', $profile));
+            return Command::FAILURE;
+        }
+        $isProd = $profile === self::PROFILE_PROD;
+
         $projectPath = Environment::getProjectPath();
         $caddyFilePath = $projectPath . '/Caddyfile';
 
@@ -43,12 +61,21 @@ class InitCommand extends Command
         $helper = $this->getHelper('question');
         $root = str_replace('//', '/', $this->deriveWebDir($projectPath));
 
+        // Profile-aware prompt defaults. The --profile flag is the single
+        // source of truth; if a user wants a Production TYPO3_CONTEXT with
+        // dev ports they can still override interactively or via .env later.
+        $defaults = $isProd
+            ? ['httpPort' => 80, 'httpsPort' => 443, 'context' => 'Production',
+               'workerCount' => '4', 'maxRequests' => '1000']
+            : ['httpPort' => 8888, 'httpsPort' => 8885, 'context' => 'Development',
+               'workerCount' => '2', 'maxRequests' => '500'];
+
         if($input->isInteractive()) {
-            $io->block('Set environment variables (.env):', 'INFO', 'fg=green', '');
+            $io->block(sprintf('Set environment variables (.env) for profile "%s":', $profile), 'INFO', 'fg=green', '');
         }
 
-        $httpPort = $this->askPort($helper, $input, $output, 'HTTP_PORT', 8888);
-        $httpsPort = $this->askPort($helper, $input, $output, 'HTTPS_PORT', 8885);
+        $httpPort = $this->askPort($helper, $input, $output, 'HTTP_PORT', $defaults['httpPort']);
+        $httpsPort = $this->askPort($helper, $input, $output, 'HTTPS_PORT', $defaults['httpsPort']);
 
         $phpIniScanDir = (string)$helper->ask($input, $output, new Question(
             'PHP_INI_SCAN_DIR [<info>./</info>]: ',
@@ -56,8 +83,8 @@ class InitCommand extends Command
         ));
 
         $typo3Context = (string)$helper->ask($input, $output, new Question(
-            'TYPO3_CONTEXT [<info>Development</info>]: ',
-            'Development'
+            sprintf('TYPO3_CONTEXT [<info>%s</info>]: ', $defaults['context']),
+            $defaults['context']
         ));
 
         $serverName = (string)$helper->ask($input, $output, new Question(
@@ -74,18 +101,18 @@ class InitCommand extends Command
         $maxRequests = null;
         if ($workerMode) {
             $workerCount = (string)$helper->ask($input, $output, new Question(
-                'FRANKENPHP_WORKER_COUNT [<info>5</info>]: ',
-                '2'
+                sprintf('FRANKENPHP_WORKER_COUNT [<info>%s</info>]: ', $defaults['workerCount']),
+                $defaults['workerCount']
             ));
 
             $maxRequests = (string)$helper->ask($input, $output, new Question(
-                'MAX_REQUESTS [<info>500</info>]: ',
-                '500'
+                sprintf('MAX_REQUESTS [<info>%s</info>]: ', $defaults['maxRequests']),
+                $defaults['maxRequests']
             ));
         }
 
         if($this->fileShouldBeCreated($caddyFilePath, $io, $force)) {
-            $caddyFileContent = $this->buildCaddyfile($root, $workerMode);
+            $caddyFileContent = $this->buildCaddyfile($root, $workerMode, $isProd);
             file_put_contents($caddyFilePath, $caddyFileContent);
             $io->success('Created Caddyfile');
         }
@@ -110,7 +137,7 @@ class InitCommand extends Command
             if (!is_dir($phpIniDir) && !@mkdir($phpIniDir, 0775, true) && !is_dir($phpIniDir)) {
                 $io->warning(sprintf('Could not create PHP_INI_SCAN_DIR "%s" for php.ini.', $phpIniDir));
             } else {
-                file_put_contents($phpIniPath, $this->buildPhpIni($typo3Context));
+                file_put_contents($phpIniPath, $this->buildPhpIni($typo3Context, $isProd));
                 $io->success('Created ' . $phpIniPath);
             }
         }
@@ -201,9 +228,113 @@ class InitCommand extends Command
         return (int)$helper->ask($input, $output, $question);
     }
 
-    private function buildCaddyfile(string $root, bool $workerMode): string
+    private function buildCaddyfile(string $root, bool $workerMode, bool $isProd): string
     {
         $entryScript = $workerMode ? '/worker.php' : '/index.php';
+
+        // The install-tool routing block is identical across profiles —
+        // factor it out so a Caddyfile feature added to one profile can't
+        // silently miss the other.
+        $installToolBlock = <<<CADDY
+	# Browser-navigation UX guard: install-tool controllers other than `layout`
+	# (maintenance/settings/upgrade/environment/icon) return JsonResponse
+	# envelopes meant for the install tool's own JS to inject into a modal.
+	# A user pasting such a URL into the address bar would see raw JSON. We
+	# detect top-level browser navigations via Sec-Fetch headers and redirect
+	# to the install-tool dashboard so the user can click into the right tile.
+	# Legitimate AJAX calls (X-Requested-With: XMLHttpRequest) bypass and
+	# reach the controller normally.
+	@install_browser_ajax {
+		query __typo3_install=*
+		query install[action]=*
+		header Sec-Fetch-Mode navigate
+		header Sec-Fetch-Dest document
+		not header X-Requested-With XMLHttpRequest
+	}
+	redir @install_browser_ajax /?__typo3_install 302
+
+	# TYPO3 Install Tool recovery URL (?__typo3_install) bypasses the worker
+	# and runs through TYPO3's canonical public/index.php in regular PHP
+	# execution. index.php already detects ?__typo3_install and calls
+	# Bootstrap::init with \$failsafe=true to expose InstallApplication,
+	# so we just route to it instead of shipping our own duplicate.
+	# Reach the install tool at: https://…/?__typo3_install
+	@typo3_install query __typo3_install=*
+	handle @typo3_install {
+		rewrite * /index.php
+		php
+	}
+
+	# Canonical FrankenPHP routing: php_server serves existing static files,
+	# routes everything else through the worker entry point.
+	# REQUEST_URI is preserved (Caddy sets it from the original client request,
+	# not the post-rewrite URI) so TYPO3 can route /typo3/module/* correctly.
+	php_server {
+		index {$entryScript}
+		try_files {path} {$entryScript}
+	}
+CADDY;
+
+        if ($isProd) {
+            $workerBlock = $workerMode
+                ? "\n\tfrankenphp {\n\t\tworker {\$FRANKENPHP_WORKER_FILE:{$root}/worker.php} {\$FRANKENPHP_WORKER_COUNT:4}\n\t}\n"
+                : '';
+
+            // Production: real ports (80/443), ACME-auto-managed TLS via
+            // Caddy's site-address shorthand (no scheme prefix = HTTP→HTTPS
+            // redirect + ACME provisioning for {$SERVER_NAME}), HSTS &
+            // hardening headers, no `debug` directive.
+            return <<<CADDYFILE
+{
+	http_port {\$HTTP_PORT:80}
+	https_port {\$HTTPS_PORT:443}
+{$workerBlock}
+	# https://caddyserver.com/docs/caddyfile/directives#sorting-algorithm
+	order mercure after encode
+	order vulcain after reverse_proxy
+	order php_server before file_server
+	order php before file_server
+}
+
+{\$CADDY_EXTRA_CONFIG}
+
+# Production site block — Caddy auto-provisions a Let's Encrypt cert for
+# {\$SERVER_NAME} (must be a real public DNS name pointing at this host with
+# ports 80 + 443 reachable). Set SERVER_NAME in .env to your domain.
+{\$SERVER_NAME:localhost} {
+	log {
+		format filter {
+			wrap console
+			fields {
+				uri query {
+					replace authorization REDACTED
+				}
+			}
+		}
+	}
+
+	root * {$root}/
+
+	encode zstd gzip
+
+	# Hardening headers — applied to every response.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+		-Server
+	}
+
+	{\$CADDY_SERVER_EXTRA_DIRECTIVES}
+
+{$installToolBlock}
+}
+
+CADDYFILE;
+        }
+
+        // Development profile (default).
         $workerBlock = $workerMode
             ? "\n\tfrankenphp {\n\t\tworker {\$FRANKENPHP_WORKER_FILE:{$root}/worker.php} {\$FRANKENPHP_WORKER_COUNT:2}\n\t}\n"
             : '';
@@ -248,43 +379,7 @@ http://{\$SERVER_NAME:localhost}:{\$HTTP_PORT:8888}, https://{\$SERVER_NAME:loca
 
 	{\$CADDY_SERVER_EXTRA_DIRECTIVES}
 
-	# Browser-navigation UX guard: install-tool controllers other than `layout`
-	# (maintenance/settings/upgrade/environment/icon) return JsonResponse
-	# envelopes meant for the install tool's own JS to inject into a modal.
-	# A user pasting such a URL into the address bar would see raw JSON. We
-	# detect top-level browser navigations via Sec-Fetch headers and redirect
-	# to the install-tool dashboard so the user can click into the right tile.
-	# Legitimate AJAX calls (X-Requested-With: XMLHttpRequest) bypass and
-	# reach the controller normally.
-	@install_browser_ajax {
-		query __typo3_install=*
-		query install[action]=*
-		header Sec-Fetch-Mode navigate
-		header Sec-Fetch-Dest document
-		not header X-Requested-With XMLHttpRequest
-	}
-	redir @install_browser_ajax /?__typo3_install 302
-
-	# TYPO3 Install Tool recovery URL (?__typo3_install) bypasses the worker
-	# and runs through TYPO3's canonical public/index.php in regular PHP
-	# execution. index.php already detects ?__typo3_install and calls
-	# Bootstrap::init with \$failsafe=true to expose InstallApplication,
-	# so we just route to it instead of shipping our own duplicate.
-	# Reach the install tool at: https://…/?__typo3_install
-	@typo3_install query __typo3_install=*
-	handle @typo3_install {
-		rewrite * /index.php
-		php
-	}
-
-	# Canonical FrankenPHP routing: php_server serves existing static files,
-	# routes everything else through the worker entry point.
-	# REQUEST_URI is preserved (Caddy sets it from the original client request,
-	# not the post-rewrite URI) so TYPO3 can route /typo3/module/* correctly.
-	php_server {
-		index {$entryScript}
-		try_files {path} {$entryScript}
-	}
+{$installToolBlock}
 }
 
 CADDYFILE;
@@ -350,23 +445,37 @@ ENV;
     }
 
     /**
-     * Sane TYPO3 PHP defaults — covers the minimums TYPO3's system
-     * requirements documentation calls out (memory_limit, max_input_vars,
-     * upload sizes) plus a small dev/production split
-     * keyed off TYPO3_CONTEXT for error display, assertions and opcache
-     * timestamp revalidation.
+     * Sane TYPO3 PHP defaults. Two profiles:
      *
-     * Note: max_execution_time is useless in FrankenPHP worker mode
+     *   dev  (--profile=dev OR TYPO3_CONTEXT=Development…) — display_errors=On,
+     *        zend.assertions=1, opcache.validate_timestamps=1 (re-check every
+     *        request), modest opcache sizing, no JIT.
+     *
+     *   prod (--profile=prod AND TYPO3_CONTEXT not Development) — errors off,
+     *        assertions off, opcache.validate_timestamps=0 (flush opcache on
+     *        deploy), bigger opcache sizing, tracing JIT, realpath cache
+     *        tuned, expose_php=Off.
+     *
+     * Note: max_execution_time is largely a no-op in FrankenPHP worker mode.
      */
-    private function buildPhpIni(string $typo3Context): string
+    private function buildPhpIni(string $typo3Context, bool $isProd): string
     {
-        $isDev = str_starts_with(strtolower($typo3Context), 'development');
-        $displayErrors = $isDev ? 'On' : 'Off';
-        $zendAssertions = $isDev ? '1' : '-1';
-        $opcacheValidate = $isDev ? '1' : '0';
+        // The --profile flag is the primary signal, but a hand-edited
+        // TYPO3_CONTEXT=Development on a prod-profile setup should still
+        // surface errors — and the inverse (Production context on a
+        // dev-profile setup) should hide them. Treat dev as the union:
+        // either the flag picked dev OR the context says development.
+        $isDevContext = str_starts_with(strtolower($typo3Context), 'development');
+        $isDev = !$isProd || $isDevContext;
 
-        return <<<INI
-; TYPO3-recommended PHP defaults. Generated by `vendor/bin/typo3 frankenphp:init`.
+        if ($isDev) {
+            $displayErrors = 'On';
+            $errorReporting = 'E_ALL';
+            $zendAssertions = '1';
+            $assertException = '1';
+            return <<<INI
+; TYPO3-recommended PHP defaults (development profile).
+; Generated by `vendor/bin/typo3 frankenphp:init`.
 ; Existing files are preserved on re-run — pass --force to regenerate.
 
 ; Limits
@@ -389,18 +498,75 @@ date.timezone = "UTC"
 display_errors = {$displayErrors}
 display_startup_errors = {$displayErrors}
 log_errors = On
-error_reporting = E_ALL
+error_reporting = {$errorReporting}
 
 ; Assertions
 zend.assertions = {$zendAssertions}
-assert.exception = 1
+assert.exception = {$assertException}
 
-; OPcache
+; OPcache (dev: validate timestamps so edits are picked up on next request)
 opcache.enable = 1
 opcache.memory_consumption = 256
 opcache.interned_strings_buffer = 16
 opcache.max_accelerated_files = 16229
-opcache.validate_timestamps = {$opcacheValidate}
+opcache.validate_timestamps = 1
+
+INI;
+        }
+
+        // Production profile.
+        return <<<INI
+; TYPO3-recommended PHP defaults (production profile).
+; Generated by `vendor/bin/typo3 frankenphp:init`.
+; Existing files are preserved on re-run — pass --force to regenerate.
+
+; Limits
+memory_limit = 512M
+max_execution_time = 240
+max_input_vars = 1500
+post_max_size = 32M
+upload_max_filesize = 32M
+
+; Sessions
+session.cookie_secure = On
+session.cookie_httponly = On
+session.cookie_samesite = "Lax"
+session.gc_maxlifetime = 7200
+
+; Timezone
+date.timezone = "UTC"
+
+; Don't leak the PHP version in HTTP responses.
+expose_php = Off
+
+; Errors (TYPO3_CONTEXT={$typo3Context}) — never display, always log.
+display_errors = Off
+display_startup_errors = Off
+log_errors = On
+error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+
+; Assertions disabled (zend.assertions=-1 strips them at compile time).
+zend.assertions = -1
+assert.exception = 0
+
+; OPcache — production tuning. validate_timestamps=0 means TYPO3 will NOT
+; pick up file edits without an explicit opcache_reset() / FPM restart /
+; FrankenPHP reload, so deploy pipelines must flush the cache.
+opcache.enable = 1
+opcache.memory_consumption = 512
+opcache.interned_strings_buffer = 32
+opcache.max_accelerated_files = 20000
+opcache.validate_timestamps = 0
+
+; OPcache JIT — tracing mode (the most aggressive PHP 8.x option) with a
+; 128M buffer. Disable by commenting out both lines if a third-party
+; extension misbehaves.
+opcache.jit = tracing
+opcache.jit_buffer_size = 128M
+
+; Realpath cache — bigger + longer-lived than PHP defaults.
+realpath_cache_size = 4096k
+realpath_cache_ttl = 600
 
 INI;
     }

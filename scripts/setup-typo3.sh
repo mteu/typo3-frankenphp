@@ -99,7 +99,8 @@ generate_composer_json() {
     "config": {
         "allow-plugins": {
             "typo3/cms-composer-installers": true,
-            "typo3/class-alias-loader": true
+            "typo3/class-alias-loader": true,
+            "helhum/dotenv-connector": true
         },
         "sort-packages": true,
         "vendor-dir": "vendor"

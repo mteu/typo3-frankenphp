@@ -77,8 +77,8 @@ $handler = static function () use ($container, $stateService, $snapshot, $applic
         $stateService?->restore($snapshot, $container);
         $application->run();
     } catch (\Throwable $e) {
-        // Log every uncaught exception to a known file so diagnostics never
-        // depend on whatever capture path PHP's error_log() ends up in.
+        // One-line summary always goes through PHP's normal log channel —
+        // syslog / stderr / wherever error_log is configured to land.
         $requestLine = sprintf('%s %s', $_SERVER['REQUEST_METHOD'] ?? '?', $_SERVER['REQUEST_URI'] ?? '?');
         $traceText = sprintf(
             "[%s] %s\n  %s: %s\n  at %s:%d\n%s\n\n",
@@ -91,7 +91,14 @@ $handler = static function () use ($container, $stateService, $snapshot, $applic
             $e->getTraceAsString()
         );
         error_log('TYPO3 Worker Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-        @file_put_contents($workerLogFile, $traceText, FILE_APPEND | LOCK_EX);
+        // Full stack trace dumped to var/log/frankenphp-worker.log only in
+        // development. In production this file would grow unbounded under
+        // any sustained burst of exceptions; one-line error_log() above is
+        // enough to flag the incident, and the developer can re-enable this
+        // for ad-hoc debugging by editing TYPO3_CONTEXT in .env.
+        if ($isDevelopment) {
+            @file_put_contents($workerLogFile, $traceText, FILE_APPEND | LOCK_EX);
+        }
 
         // Delegate to TYPO3's registered exception handler so client errors
         // (AbstractClientErrorException — rate limit, forbidden, not found)

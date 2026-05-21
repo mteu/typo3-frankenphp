@@ -12,7 +12,7 @@ class InstallerScripts implements InstallerScriptsRegistration
 {
     public static function register(Event $event, ScriptDispatcher $scriptDispatcher): void
     {
-        // Auto-generate all required files: worker.php, .env, Caddyfile
+        // Auto-generate all required files: worker.php, .env, Caddyfile, php.ini
         $scriptDispatcher->addInstallerScript(new RunFrankenphpInit());
     }
 }
