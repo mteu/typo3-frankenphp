@@ -88,11 +88,6 @@ generate_composer_json() {
         "typo3/cms-impexp": "${TYPO3_VERSION}",
         "typo3/theme-camino": "${TYPO3_VERSION}"
     },
-    "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.64",
-        "phpstan/phpstan": "^1.12",
-        "typo3/coding-standards": "^0.8"
-    },
     "repositories": [
         { "type": "path", "url": "../", "options": { "symlink": true } }
     ],
