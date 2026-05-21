@@ -17,7 +17,12 @@ test('Sites -> Page TSconfig', async ({page}) => {
     // (labelled with the current view name — regex matches any of them)
     // to navigate to each known sub-view explicitly.
 
-    // → Pages containing page TSconfig
+    // → Pages containing page TSconfig.
+    // First settle on a deterministic H1 (the Camino page tree click above
+    // races against any prior worker's UC state). Wait for *any* page
+    // TSconfig H1 before opening the Module action — otherwise the
+    // dropdown can resolve against a stale iframe DOM under workers > 1.
+    await expect(contentFrame.getByRole('heading', {level: 1})).toBeVisible();
     await contentFrame.getByRole('button', {name: /^Module action:/}).click();
     await contentFrame.getByRole('link', {name: 'Pages containing page TSconfig'}).click();
     await expect(contentFrame.getByRole('heading', {level: 1}))
@@ -26,6 +31,12 @@ test('Sites -> Page TSconfig', async ({page}) => {
     // → Active page TSconfig
     await contentFrame.getByRole('button', {name: /^Module action:/}).click();
     await contentFrame.getByRole('link', {name: 'Active page TSconfig'}).click();
+    // Race-safe: assert the H1 changed first, THEN the body content.
+    // Under parallel workers the iframe nav lags the click — without this
+    // explicit step the body content from the prior "Pages containing
+    // page TSconfig" view was still in DOM when the substring check ran.
+    await expect(contentFrame.getByRole('heading', {level: 1}))
+        .toContainText('Active page TSconfig');
     await expect(contentFrame.locator('body')).toContainText('Constants from site settings');
     // Two "Configuration" tabs (Constants + Setup panels) — pick the first.
     await expect(contentFrame.getByRole('tab', {name: 'Configuration'}).first()).toBeVisible();

@@ -18,14 +18,17 @@ test('System Information shows Worker Mode: Enabled on worker-served requests', 
         .waitFor({state: 'attached', timeout: 30_000});
 
     await page.locator('button').filter({hasText: 'System Information'}).first().click();
-    // Wait for the System Information dropdown's title row to actually become
-    // visible; on webkit in CI the dropdown takes longer than a fixed timeout
-    // to render, so `getByText('Worker Mode').toBeVisible()` here doubles as
-    // the open-detection signal and lets later assertions race the same row.
-    await expect(page.getByText('Worker Mode', {exact: false}).first()).toBeVisible({timeout: 15_000});
-    // The listener (Classes/EventListener/AddFrankenPhpModeToSystemInformation.php)
-    // emits the value as "Enabled" optionally followed by " ---- <worker count>".
-    // Anchor at start with a word boundary so the assertion still works after
-    // the debug suffix changes, but doesn't accidentally match "Disabled".
-    await expect(page.getByText(/^Enabled\b/).first()).toBeVisible({timeout: 15_000});
+    // Drill structurally into the Worker Mode row inside the System
+    // Information dropdown — the markup is `<th>Worker Mode</th><td>Enabled</td>`.
+    // This is robust to:
+    //   - the dropdown taking a moment to render (toBeVisible waits),
+    //   - leading/trailing whitespace inside the cells (textContent in the
+    //     TYPO3 backend is e.g. "\n    Enabled\n", which trips up regex
+    //     anchors against `getByText(regex)`),
+    //   - the listener appending a debug suffix to the value
+    //     ("Enabled ---- 2"), because toContainText is a substring match,
+    //   - rejecting "Disabled" since "Disabled" does not contain "Enabled".
+    const value = page.locator('th[data-type="title"]:has-text("Worker Mode") + td[data-type="value"]');
+    await expect(value).toBeVisible({timeout: 15_000});
+    await expect(value).toContainText('Enabled');
 });

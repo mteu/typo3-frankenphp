@@ -19,18 +19,32 @@ export default defineConfig({
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* Retry once locally, twice on CI: the dev sandbox (SQLite + 2-worker
-   * FrankenPHP) is genuinely flaky under sequential iframe-heavy load —
-   * timeouts on page-tree fetchData / modulemenu hydration are environment
-   * noise, not test bugs. */
-  retries: process.env.CI ? 2 : 1,
-  /* Cap workers at 1: the dev sandbox runs SQLite + 2-worker FrankenPHP.
-   * Three browser projects hammering the backend in parallel (each driving
-   * many iframe navigations) overloads the worker pool and produces flaky
-   * results. Serial execution costs ~30 s for the full 3-browser suite,
-   * which is fine for a dev loop; override with `--workers=N` if your
-   * stack can handle more. */
-  workers: 1,
+  /* Retry up to 2× both locally and on CI. With workers > 1 the dev
+   * sandbox sees concurrent TYPO3 session mutation across browser
+   * projects (chromium / firefox / webkit all reuse the same admin
+   * storageState, so they share one server-side session and clobber each
+   * other's UC for "last selected sub-view" in modules like Page
+   * TSconfig). 2 retries gets the flaky tests across without masking
+   * deterministic breakage. */
+  retries: 2,
+  /* Parallel workers — one per browser project (chromium / firefox /
+   * webkit) so each browser's specs run serially against the shared
+   * 2-worker FrankenPHP / SQLite backend. workers > 3 saturates the
+   * backend (page-tree fetchData queues > 90 s); workers < 3 forces
+   * cross-browser serialization for no benefit. Override with
+   * `--workers=N` if your stack tolerates more (or needs less). */
+  workers: 3,
+  /* Per-assertion timeout. Default 5 s is too tight under concurrent
+   * iframe-heavy load — backend navigations queue at FrankenPHP's
+   * 2-worker pool. 15 s eliminates spurious "element not found" flakes
+   * without masking real bugs. */
+  expect: {timeout: 15_000},
+  /* Per-test overall timeout. Default 30 s is also too tight under
+   * workers > 1: each iframe-heavy spec does many sequential nav steps
+   * and the queue depth grows with concurrency. 90 s gives the slowest
+   * specs (backend-smoke iterates every module) headroom; genuinely
+   * hung tests still fail loudly. */
+  timeout: 90_000,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
