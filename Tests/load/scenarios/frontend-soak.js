@@ -46,7 +46,12 @@ export const options = {
  * metrics) keeps the measured window clean.
  */
 export function setup() {
-    http.get(`${CONFIG.baseUrl}${typeof FRONTEND_PATHS !== 'undefined' ? FRONTEND_PATHS[0] : '/?__typo3_install'}`, REQUEST_PARAMS);
+    // Loop so the warmup hits every worker slot at least once — see
+    // frontend-smoke.js for the full rationale.
+    const path = typeof FRONTEND_PATHS !== 'undefined' ? FRONTEND_PATHS : ['/?__typo3_install'];
+    for (let i = 0; i < 10; i++) {
+        http.get(`${CONFIG.baseUrl}${path[i % path.length]}`, REQUEST_PARAMS);
+    }
 }
 
 export default function () {
