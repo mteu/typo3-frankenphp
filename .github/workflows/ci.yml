@@ -95,6 +95,10 @@ jobs:
           # before the install resolves.
           brew tap shivammathur/php
           brew install dunglas/frankenphp/frankenphp
+          # `eval brew shellenv` only mutates PATH in this step's shell;
+          # subsequent steps spawn fresh `bash -e` and would lose it.
+          # $GITHUB_PATH is the documented cross-step PATH extension.
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
           frankenphp version
 
       - name: Bootstrap TYPO3 sandbox
@@ -206,6 +210,10 @@ jobs:
           # before the install resolves.
           brew tap shivammathur/php
           brew install dunglas/frankenphp/frankenphp
+          # `eval brew shellenv` only mutates PATH in this step's shell;
+          # subsequent steps spawn fresh `bash -e` and would lose it.
+          # $GITHUB_PATH is the documented cross-step PATH extension.
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
           frankenphp version
 
       - name: Install k6
