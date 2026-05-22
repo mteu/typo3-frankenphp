@@ -14,18 +14,18 @@
  */
 
 import http from 'k6/http';
-import { check, sleep } from 'k6';
-import { CONFIG, REQUEST_PARAMS } from '../lib/config.js';
-import { loginOncePerVU, BACKEND_REQUEST_PARAMS } from '../lib/auth.js';
-import { backendThresholds } from '../lib/thresholds.js';
-import { okStatus, looksLikeBackend, noPHPError } from '../lib/checks.js';
+import {check, sleep} from 'k6';
+import {CONFIG, REQUEST_PARAMS} from '../lib/config.js';
+import {loginOncePerVU, BACKEND_REQUEST_PARAMS} from '../lib/auth.js';
+import {backendThresholds} from '../lib/thresholds.js';
+import {okStatus, looksLikeBackend, noPHPError} from '../lib/checks.js';
 
 export const options = {
     insecureSkipTLSVerify: true,
     scenarios: {
         load: {
             executor: 'constant-vus',
-            vus:      5,
+            vus: 5,
             duration: '2m',
         },
     },
@@ -38,14 +38,14 @@ export default function () {
     }
 
     const main = http.get(`${CONFIG.baseUrl}/typo3/main`, BACKEND_REQUEST_PARAMS);
-    check(main, { ...okStatus, ...looksLikeBackend, ...noPHPError });
+    check(main, {...okStatus, ...looksLikeBackend, ...noPHPError});
     sleep(1);
 
     const layout = http.get(`${CONFIG.baseUrl}/typo3/module/web/layout?id=1`, BACKEND_REQUEST_PARAMS);
-    check(layout, { ...okStatus, ...noPHPError });
+    check(layout, {...okStatus, ...noPHPError});
     sleep(1);
 
     const list = http.get(`${CONFIG.baseUrl}/typo3/module/records?id=1`, BACKEND_REQUEST_PARAMS);
-    check(list, { ...okStatus, ...noPHPError });
+    check(list, {...okStatus, ...noPHPError});
     sleep(1);
 }

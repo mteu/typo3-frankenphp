@@ -12,7 +12,11 @@
         "friendsofphp/php-cs-fixer": "^3.64",
         "phpstan/phpstan": "^1.12",
         "typo3/cms-backend": "^14.3",
+        "typo3/cms-dashboard": "^14.3",
         "typo3/coding-standards": "^0.8"
+    },
+    "suggest": {
+        "typo3/cms-dashboard": "Required for the live Prometheus metrics dashboard widget — without it the widget gracefully no-ops."
     },
     "autoload": {
         "psr-4": {

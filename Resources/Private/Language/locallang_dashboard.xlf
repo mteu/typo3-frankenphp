@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.0" xmlns:t3="http://typo3.org/schemas/xliff">
+  <file source-language="en" datatype="plaintext" original="messages" date="2026-05-22T00:00:00Z" product-name="frankenphp">
+    <header/>
+    <body>
+      <trans-unit id="widget.group.frankenphp">
+        <source>FrankenPHP</source>
+      </trans-unit>
+      <trans-unit id="widget.prometheusMetrics.title">
+        <source>FrankenPHP Live Metrics</source>
+      </trans-unit>
+      <trans-unit id="widget.prometheusMetrics.description">
+        <source>Live charts of FrankenPHP worker and Caddy metrics scraped from the Prometheus endpoint configured by `frankenphp:init --prometheus`. Pick a metric and an optional title.</source>
+      </trans-unit>
+      <trans-unit id="widget.prometheusMetrics.setting.metric.label">
+        <source>Metric</source>
+      </trans-unit>
+      <trans-unit id="widget.prometheusMetrics.setting.metric.description">
+        <source>Pick the Prometheus metric family to chart. The widget auto-selects the appropriate chart type (line for counters, gauges and summary quantiles; bar for histogram buckets).</source>
+      </trans-unit>
+      <trans-unit id="widget.prometheusMetrics.setting.label.label">
+        <source>Title (optional)</source>
+      </trans-unit>
+      <trans-unit id="widget.prometheusMetrics.setting.label.description">
+        <source>Override the widget header. Leave empty to use the metric name.</source>
+      </trans-unit>
+      <trans-unit id="dashboard.preset.liveMetrics.title">
+        <source>FrankenPHP Live Metrics</source>
+      </trans-unit>
+      <trans-unit id="dashboard.preset.liveMetrics.description">
+        <source>A pre-built dashboard with one live chart per Prometheus metric exposed by FrankenPHP and Caddy (worker pool, HTTP layer, Go runtime). Requires `vendor/bin/typo3 frankenphp:init --prometheus`.</source>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

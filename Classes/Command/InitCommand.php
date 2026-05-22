@@ -39,6 +39,16 @@ class InitCommand extends Command
             'Configuration profile: dev (default) or prod. Drives Caddyfile / .env / php.ini / worker.php defaults.',
             self::PROFILE_DEV
         );
+        $this->addOption(
+            'prometheus',
+            null,
+            InputOption::VALUE_NONE,
+            'Enable Caddy + FrankenPHP Prometheus metrics. Adds `metrics` + an `admin localhost:METRICS_PORT` '
+            . 'directive to the global Caddyfile block; the port (default 2019) is prompted during init '
+            . 'and stored as METRICS_PORT in .env. The endpoint is localhost-bound and meant for server-side '
+            . 'scrapers (Prometheus, Grafana Agent, curl) — browsers cannot reach it directly because Caddy '
+            . 'admin rejects requests with no Origin header.'
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -51,6 +61,7 @@ class InitCommand extends Command
             return Command::FAILURE;
         }
         $isProd = $profile === self::PROFILE_PROD;
+        $prometheus = (bool)$input->getOption('prometheus');
 
         $projectPath = Environment::getProjectPath();
         $caddyFilePath = $projectPath . '/Caddyfile';
@@ -78,6 +89,15 @@ class InitCommand extends Command
 
         $httpPort = $this->askPort($helper, $input, $output, 'HTTP_PORT', $defaults['httpPort']);
         $httpsPort = $this->askPort($helper, $input, $output, 'HTTPS_PORT', $defaults['httpsPort']);
+
+        // Prompted only when --prometheus is set, so users on the default
+        // (metrics-off) path don't see an unrelated port question. Caddy's
+        // admin endpoint defaults to localhost:2019, so 2019 keeps the
+        // out-of-the-box behavior unless the user picks a different port
+        // to avoid a conflict.
+        $metricsPort = $prometheus
+            ? $this->askPort($helper, $input, $output, 'METRICS_PORT', 2019)
+            : null;
 
         $phpIniScanDir = (string)$helper->ask($input, $output, new Question(
             'PHP_INI_SCAN_DIR [<info>./</info>]: ',
@@ -114,7 +134,7 @@ class InitCommand extends Command
         }
 
         if ($this->fileShouldBeCreated($caddyFilePath, $io, $force)) {
-            $caddyFileContent = $this->buildCaddyfile($root, $workerMode, $isProd);
+            $caddyFileContent = $this->buildCaddyfile($root, $workerMode, $isProd, $prometheus);
             file_put_contents($caddyFilePath, $caddyFileContent);
             $io->success('Created Caddyfile');
         }
@@ -127,7 +147,8 @@ class InitCommand extends Command
                 $httpPort,
                 $httpsPort,
                 $workerCount,
-                $maxRequests
+                $maxRequests,
+                $metricsPort,
             );
             file_put_contents($envFilePath, $envContent);
             $io->success('Created .env');
@@ -230,9 +251,31 @@ class InitCommand extends Command
         return (int)$helper->ask($input, $output, $question);
     }
 
-    private function buildCaddyfile(string $root, bool $workerMode, bool $isProd): string
+    private function buildCaddyfile(string $root, bool $workerMode, bool $isProd, bool $prometheus = false): string
     {
         $entryScript = $workerMode ? '/worker.php' : '/index.php';
+
+        // Prometheus / FrankenPHP metrics. When --prometheus is set, the
+        // Caddy admin endpoint exposes Prometheus-format metrics covering
+        // Caddy server stats and the FrankenPHP worker pool (workers
+        // idle/busy, queue depth, request durations, etc.) on the port
+        // chosen during `frankenphp:init` (default 2019), driven by the
+        // METRICS_PORT variable in .env.
+        //
+        // The admin endpoint is localhost-bound AND rejects requests with
+        // no Origin header (i.e. direct browser navigations) — this is
+        // intentional: the admin API can mutate Caddy's running config,
+        // so it has CSRF-style protection baked in. Server-side scrapers
+        // (Prometheus, Grafana Agent, curl, k6) don't trip this guard.
+        // For browser access or cross-host scraping, add a dedicated
+        // metrics-only listener via $CADDY_EXTRA_CONFIG, e.g.
+        //   :2020 { metrics }
+        //
+        // Modern form: just `metrics` (the older `servers { metrics }`
+        // wrapper is deprecation-warned by Caddy 2.11+).
+        $metricsGlobal = $prometheus
+            ? "\n\t# Prometheus metrics — enables /metrics on the Caddy admin\n\t# endpoint at http://localhost:{\$METRICS_PORT:2019}/metrics.\n\t# Server-side scrapers (Prometheus, curl, k6) reach it directly;\n\t# browsers cannot — Caddy admin rejects requests with no Origin\n\t# header (CSRF guard).\n\tadmin localhost:{\$METRICS_PORT:2019}\n\tmetrics\n"
+            : '';
 
         // The install-tool routing block is identical across profiles —
         // factor it out so a Caddyfile feature added to one profile can't
@@ -290,7 +333,7 @@ CADDY;
 {
 	http_port {\$HTTP_PORT:80}
 	https_port {\$HTTPS_PORT:443}
-{$workerBlock}
+{$workerBlock}{$metricsGlobal}
 	# https://caddyserver.com/docs/caddyfile/directives#sorting-algorithm
 	order mercure after encode
 	order vulcain after reverse_proxy
@@ -348,7 +391,7 @@ CADDYFILE;
 	https_port {\$HTTPS_PORT:8885}
 	auto_https disable_redirects
 	debug
-{$workerBlock}
+{$workerBlock}{$metricsGlobal}
 	# https://caddyserver.com/docs/caddyfile/directives#sorting-algorithm
 	order mercure after encode
 	order vulcain after reverse_proxy
@@ -395,6 +438,7 @@ CADDYFILE;
         int $httpsPort,
         ?string $workerCount,
         ?string $maxRequests,
+        ?int $metricsPort = null,
     ): string {
         $workerEnv = '';
         if ($workerCount !== null && $maxRequests !== null) {
@@ -406,6 +450,19 @@ MAX_REQUESTS={$maxRequests}
 ENV;
         }
 
+        // Only emitted when --prometheus is set so users on the metrics-off
+        // default path don't carry an unused variable in .env. Drives the
+        // `admin localhost:{$METRICS_PORT:2019}` directive in the Caddyfile
+        // global block (which also controls the /metrics endpoint).
+        $metricsEnv = '';
+        if ($metricsPort !== null) {
+            $metricsEnv = <<<ENV
+
+# Prometheus endpoint port
+METRICS_PORT={$metricsPort}
+ENV;
+        }
+
         return <<<ENV
 PHP_INI_SCAN_DIR={$phpIniScanDir}
 TYPO3_CONTEXT={$typo3Context}
@@ -413,7 +470,7 @@ TYPO3_CONTEXT={$typo3Context}
 SERVER_NAME={$serverName}
 HTTP_PORT={$httpPort}
 HTTPS_PORT={$httpsPort}
-{$workerEnv}
+{$workerEnv}{$metricsEnv}
 
 ENV;
     }

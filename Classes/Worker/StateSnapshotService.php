@@ -13,9 +13,11 @@ use TYPO3\CMS\Backend\Template\Components\DocHeaderComponent;
 use TYPO3\CMS\Backend\Template\Components\MenuRegistry;
 use TYPO3\CMS\Backend\Toolbar\InformationStatus;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\SecurityAspect;
 use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Context\WorkspaceAspect;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry;
 use TYPO3\CMS\Core\Page\AssetCollector;
@@ -82,10 +84,44 @@ final class StateSnapshotService
         // Context aspects: middleware re-populates per request but if a previous
         // request crashed mid-flight, stale aspects can reach PageRenderer and
         // produce undefined-$GLOBALS access errors.
+        //
+        // `security` carries NoncePool + the received RequestToken; without
+        // this reset, a nonce minted in request A would still be considered
+        // "already used" in request B, and an invalid RequestToken from a
+        // crashed request would persist as the validation result for the
+        // next request. SecurityAspect::provideIn(new Context()) creates a
+        // fresh aspect; we then plant it on the live (singleton) Context.
         $context = $container->get(Context::class);
         $context->setAspect('backend.user', new UserAspect(null));
         $context->setAspect('frontend.user', new UserAspect(null));
         $context->setAspect('workspace', new WorkspaceAspect(0));
+        $context->setAspect('security', SecurityAspect::provideIn(new Context()));
+
+        // FormProtectionFactory caches BackendFormProtection / FrontendForm-
+        // Protection instances in `cache.runtime` keyed ONLY by type
+        // ('backend' / 'frontend' / 'installtool') — not by user or session.
+        // In worker mode the cache survives across requests, so the first
+        // request's cached instance carries that session's $sessionToken;
+        // any subsequent request from a DIFFERENT user/session reads back
+        // the same instance and tries to validate its tokens against the
+        // wrong session secret → "Validating the security token of this
+        // form has failed." This reproduces reliably when k6 load:backend
+        // hammers the worker while a real browser session is active.
+        //
+        // Closure::bind grants access to the protected `runtimeCache` field
+        // and protected `getIdentifierForType()` method without forcing
+        // TYPO3 Core to expose them — and means we don't have to replicate
+        // the (private, hash-based) identifier scheme here.
+        if ($container->has(FormProtectionFactory::class)) {
+            $formProtectionFactory = $container->get(FormProtectionFactory::class);
+            \Closure::bind(static function () use ($formProtectionFactory): void {
+                foreach (['installtool', 'frontend', 'backend', 'disabled'] as $type) {
+                    $formProtectionFactory->runtimeCache->remove(
+                        $formProtectionFactory->getIdentifierForType($type),
+                    );
+                }
+            }, null, FormProtectionFactory::class)();
+        }
 
         // DI singletons with public state APIs.
         $container->get(PageRenderer::class)->updateState($snapshot->pageRendererState);

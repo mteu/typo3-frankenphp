@@ -11,3 +11,10 @@ services:
   Ochorocho\FrankenPhp\Worker\StateSnapshotService:
     public: true
     shared: true
+
+  # Backend AJAX controllers — TYPO3's route dispatcher resolves the target
+  # class from the container if it's a public service; otherwise it falls
+  # back to `GeneralUtility::makeInstance()` with no args, which fails the
+  # moment the controller's constructor declares any dependency.
+  Ochorocho\FrankenPhp\Controller\Backend\MetricsAjaxController:
+    public: true
