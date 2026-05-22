@@ -33,6 +33,18 @@ export const options = {
     thresholds: saturationThresholds,
 };
 
+
+/**
+ * Cold-boot warmup — see frontend-smoke.js for rationale. The first
+ * worker request after frankenphp boot pays a 1–3 s startup cost
+ * that distorts percentile thresholds in short scenarios; running a
+ * throwaway request from setup() (which is excluded from threshold
+ * metrics) keeps the measured window clean.
+ */
+export function setup() {
+    http.get(`${CONFIG.baseUrl}${typeof FRONTEND_PATHS !== 'undefined' ? FRONTEND_PATHS[0] : '/?__typo3_install'}`, REQUEST_PARAMS);
+}
+
 export default function () {
     const res = http.get(`${CONFIG.baseUrl}${randomFrontendPath()}`, REQUEST_PARAMS);
     check(res, okStatus);

@@ -27,6 +27,23 @@ export const options = {
     thresholds: defaultThresholds,
 };
 
+/**
+ * One-off worker warmup before the measured iterations begin.
+ *
+ * k6's `setup()` runs exactly once at the start of the test and its
+ * own HTTP requests are emitted into a separate metric scope that
+ * thresholds do not gate on — perfect for absorbing the FrankenPHP
+ * worker's first-request boot cost (1–3 s on cold CI runners). Without
+ * this, the 1 VU × 30 s smoke yields ~48 measured requests of which
+ * exactly one carries the boot cost, and the p95 (top 5% ≈ 2 samples)
+ * latches onto that single outlier — tripping the 500 ms gate.
+ *
+ * https://grafana.com/docs/k6/latest/using-k6/test-lifecycle/
+ */
+export function setup() {
+    http.get(`${CONFIG.baseUrl}${FRONTEND_PATHS[0]}`, REQUEST_PARAMS);
+}
+
 export default function () {
     for (const path of FRONTEND_PATHS) {
         const res = http.get(`${CONFIG.baseUrl}${path}`, REQUEST_PARAMS);
