@@ -90,6 +90,10 @@ jobs:
         # See https://github.com/dunglas/homebrew-frankenphp.
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          # FrankenPHP's brew formula depends on shivammathur/php/php-zts,
+          # which lives in a separate tap that needs an explicit `brew tap`
+          # before the install resolves.
+          brew tap shivammathur/php
           brew install dunglas/frankenphp/frankenphp
           frankenphp version
 
@@ -197,6 +201,10 @@ jobs:
         # Homebrew tap ships the full-extension build.
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          # FrankenPHP's brew formula depends on shivammathur/php/php-zts,
+          # which lives in a separate tap that needs an explicit `brew tap`
+          # before the install resolves.
+          brew tap shivammathur/php
           brew install dunglas/frankenphp/frankenphp
           frankenphp version
 
