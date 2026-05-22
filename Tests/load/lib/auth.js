@@ -14,10 +14,10 @@
  */
 
 import http from 'k6/http';
-import { parseHTML } from 'k6/html';
-import { check } from 'k6';
-import { CONFIG, REQUEST_PARAMS } from './config.js';
-import { noSecurityTokenError } from './checks.js';
+import {parseHTML} from 'k6/html';
+import {check} from 'k6';
+import {CONFIG, REQUEST_PARAMS} from './config.js';
+import {noSecurityTokenError} from './checks.js';
 
 /**
  * Backend request params. TYPO3 v14 ships a JS "referrer-refresh"
@@ -34,7 +34,7 @@ export const BACKEND_REQUEST_PARAMS = {
     timeout: REQUEST_PARAMS.timeout,
     // Inherit the phase=measured tag so backend iteration requests are
     // gated by the phase-scoped thresholds (see lib/thresholds.js).
-    tags:    REQUEST_PARAMS.tags,
+    tags: REQUEST_PARAMS.tags,
 };
 
 /**
@@ -63,17 +63,23 @@ export function login() {
     const post = http.post(
         loginUrl,
         {
-            username:        CONFIG.user,
-            userident:       CONFIG.pass,
-            login_status:    'login',
-            __RequestToken:  token,
+            username: CONFIG.user,
+            userident: CONFIG.pass,
+            login_status: 'login',
+            __RequestToken: token,
         },
         {
             headers: REQUEST_PARAMS.headers,
             // The auth flow returns 303 → /typo3/main?token=… ; we want
             // to follow it so the cookie jar picks up be_typo_user.
             redirects: 5,
-            timeout:   '30s',
+            timeout: '30s',
+            // Tag with phase=measured so the threshold-scoped
+            // http_req_* metrics include the login POST. Without this
+            // tag the POST was sitting in the untagged bucket and its
+            // failure rate was invisible to the phase-scoped gates
+            // (only visible in the global http_req_failed metric).
+            tags: REQUEST_PARAMS.tags,
         },
     );
 
@@ -89,6 +95,12 @@ export function login() {
 
     check(post, {
         'login succeeded': () => landedAuthenticated,
+        // Surface the POST status code as a check so it shows up in the
+        // k6 summary instead of only the http_req_failed rate. When
+        // landedAuthenticated is false the test summary now tells us
+        // *what* the server replied with (2xx vs 4xx vs 5xx) without
+        // needing the trace artifact.
+        'login POST returned 2xx or 3xx': (r) => r.status >= 200 && r.status < 400,
         ...noSecurityTokenError,
     });
 
@@ -114,16 +126,16 @@ function captureCookies() {
     const cookies = http.cookieJar().cookiesForURL(CONFIG.baseUrl);
     const out = [];
     for (const name of Object.keys(cookies)) {
-        out.push({ name, value: cookies[name][0] });
+        out.push({name, value: cookies[name][0]});
     }
     return out;
 }
 
 function restoreCookies(snapshot) {
     const jar = http.cookieJar();
-    for (const { name, value } of snapshot) {
+    for (const {name, value} of snapshot) {
         jar.set(CONFIG.baseUrl, name, value, {
-            path:    '/',
+            path: '/',
             expires: 'Fri, 01 Jan 2099 00:00:00 GMT',
         });
     }
