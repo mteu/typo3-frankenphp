@@ -108,7 +108,11 @@ jobs:
           nohup frankenphp run -c Caddyfile -e .env > frankenphp.log 2>&1 &
           echo $! > frankenphp.pid
           for i in $(seq 1 30); do
-            if curl -sk -o /dev/null https://localhost:8885/typo3/login; then
+            # `-f` makes curl exit non-zero on 4xx/5xx, so a worker that
+            # accepted the TCP connection but is returning 500s doesn't
+            # silently pass this readiness gate and let Playwright fail
+            # with a useless timeout downstream.
+            if curl -fsk -o /dev/null https://localhost:8885/typo3/login; then
               echo "frankenphp is up after ${i}s"
               exit 0
             fi
@@ -221,7 +225,9 @@ jobs:
           nohup frankenphp run -c Caddyfile -e .env > frankenphp.log 2>&1 &
           echo $! > frankenphp.pid
           for i in $(seq 1 30); do
-            if curl -sk -o /dev/null https://localhost:8885/typo3/login; then
+            # `-f` so a 5xx response doesn't silently satisfy the gate;
+            # see the Playwright job's readiness loop for the rationale.
+            if curl -fsk -o /dev/null https://localhost:8885/typo3/login; then
               echo "frankenphp is up after ${i}s"
               exit 0
             fi
