@@ -157,3 +157,102 @@ jobs:
           name: frankenphp-log
           path: Build/frankenphp.log
           retention-days: 7
+
+  load-testing:
+    name: Load testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Pin both binaries explicitly — tracking `latest` would let an
+      # upstream release break this job without any commit in this repo.
+      FRANKENPHP_VERSION: 'v1.12.3'
+      K6_VERSION:         'v2.0.0'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sqlite3, gd, intl, mbstring, dom, fileinfo, curl, zip, opcache, phar
+          tools: composer:v2
+          coverage: none
+          ini-values: memory_limit=512M, max_input_vars=1500
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install system deps
+        # ImageMagick for TYPO3's GFX processor; sqlite3 for setup-typo3.sh.
+        run: sudo apt-get update && sudo apt-get install -y imagemagick sqlite3
+
+      - name: Install FrankenPHP
+        run: |
+          curl -fL "https://github.com/php/frankenphp/releases/download/${FRANKENPHP_VERSION}/frankenphp-linux-x86_64" \
+            -o /tmp/frankenphp
+          chmod +x /tmp/frankenphp
+          sudo mv /tmp/frankenphp /usr/local/bin/frankenphp
+          frankenphp version
+
+      - name: Install k6
+        # Download the static binary from the grafana/k6 GitHub release.
+        # Avoids the apt-key dance documented in Tests/load/README.md and
+        # keeps the install hermetic to this single workflow.
+        run: |
+          curl -fL "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            -o /tmp/k6.tar.gz
+          tar -xzf /tmp/k6.tar.gz -C /tmp
+          sudo mv "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /usr/local/bin/k6
+          k6 version
+
+      - name: Bootstrap TYPO3 sandbox
+        run: bash scripts/setup-typo3.sh
+
+      - name: Regenerate frankenphp config (--force, dev profile)
+        # Same belt-and-braces as the Playwright job — defends against
+        # the Composer installer hook ever regressing on the .env /
+        # Caddyfile generation.
+        working-directory: Build
+        run: vendor/bin/typo3 frankenphp:init --no-interaction --force --profile=dev
+
+      - name: Start FrankenPHP
+        working-directory: Build
+        run: |
+          nohup frankenphp run -c Caddyfile -e .env > frankenphp.log 2>&1 &
+          echo $! > frankenphp.pid
+          for i in $(seq 1 30); do
+            if curl -sk -o /dev/null https://localhost:8885/typo3/login; then
+              echo "frankenphp is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frankenphp didn't come up — log follows:"
+          cat frankenphp.log
+          exit 1
+
+      - name: Frontend smoke
+        working-directory: Tests
+        run: npm run load:frontend:smoke
+
+      - name: Backend smoke
+        working-directory: Tests
+        run: npm run load:backend:smoke
+
+      - name: InstallTool smoke
+        working-directory: Tests
+        run: npm run load:install-tool:smoke
+
+      - name: Stop FrankenPHP
+        if: always()
+        working-directory: Build
+        run: |
+          if [ -f frankenphp.pid ]; then kill "$(cat frankenphp.pid)" || true; fi
+
+      - name: Upload FrankenPHP log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frankenphp-log-load
+          path: Build/frankenphp.log
+          retention-days: 7

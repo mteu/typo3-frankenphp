@@ -32,6 +32,14 @@ git clone git@github.com:ochorocho/typo3-frankenphp.git frankenphp
 composer req ochorocho/frankenphp:@dev
 ```
 
+**Run FrankenPHP**
+
+Run FrankenPHP from the project root using the created config files (`Caddyfile`, `.env`):
+
+```
+frankenphp run -c Caddyfile -e .env
+```
+
 ## Install Tool access
 
 Two URLs reach the TYPO3 Install Tool, each routed differently:
