@@ -58,10 +58,6 @@ jobs:
     name: Playwright
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    env:
-      # Pinned; bump explicitly. Tracking `latest` would let an upstream
-      # release break our CI without any commit in this repo.
-      FRANKENPHP_VERSION: 'v1.12.3'
     steps:
       - uses: actions/checkout@v4
 
@@ -83,13 +79,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y imagemagick sqlite3
 
       - name: Install FrankenPHP
-        # Note: the FrankenPHP project moved from github.com/dunglas/frankenphp
-        # to github.com/php/frankenphp upstream.
+        # Install via the official Homebrew tap. The static-binary releases
+        # from github.com/php/frankenphp/releases ship a stripped PHP build
+        # that lacks libargon2 — TYPO3 v14 writes argon2i password hashes
+        # via the shivammathur PHP and the static-binary worker then can't
+        # verify them, leading to "Your login attempt did not succeed" on
+        # every BE login (no CSRF flash, no 5xx). The Homebrew build is
+        # full-fat (argon2i + argon2id + sodium + …) and matches what
+        # local devs already use via `brew install frankenphp`.
+        # See https://github.com/dunglas/homebrew-frankenphp.
         run: |
-          curl -fL "https://github.com/php/frankenphp/releases/download/${FRANKENPHP_VERSION}/frankenphp-linux-x86_64" \
-            -o /tmp/frankenphp
-          chmod +x /tmp/frankenphp
-          sudo mv /tmp/frankenphp /usr/local/bin/frankenphp
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install dunglas/frankenphp/frankenphp
           frankenphp version
 
       - name: Bootstrap TYPO3 sandbox
@@ -167,10 +168,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # Pin both binaries explicitly — tracking `latest` would let an
-      # upstream release break this job without any commit in this repo.
-      FRANKENPHP_VERSION: 'v1.12.3'
-      K6_VERSION:         'v2.0.0'
+      # Pinned; tracking `latest` would let an upstream release break
+      # this job without any commit in this repo. (FrankenPHP is
+      # installed via Homebrew tap and picks up the current formula.)
+      K6_VERSION: 'v2.0.0'
     steps:
       - uses: actions/checkout@v4
 
@@ -191,11 +192,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y imagemagick sqlite3
 
       - name: Install FrankenPHP
+        # See the Playwright job for the full rationale (argon2 missing
+        # from the static-binary release → backend login fails). The
+        # Homebrew tap ships the full-extension build.
         run: |
-          curl -fL "https://github.com/php/frankenphp/releases/download/${FRANKENPHP_VERSION}/frankenphp-linux-x86_64" \
-            -o /tmp/frankenphp
-          chmod +x /tmp/frankenphp
-          sudo mv /tmp/frankenphp /usr/local/bin/frankenphp
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install dunglas/frankenphp/frankenphp
           frankenphp version
 
       - name: Install k6
