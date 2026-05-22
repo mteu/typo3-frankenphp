@@ -17,6 +17,7 @@ import http from 'k6/http';
 import { parseHTML } from 'k6/html';
 import { check } from 'k6';
 import { CONFIG, REQUEST_PARAMS } from './config.js';
+import { noSecurityTokenError } from './checks.js';
 
 /**
  * Backend request params. TYPO3 v14 ships a JS "referrer-refresh"
@@ -31,6 +32,9 @@ export const BACKEND_REQUEST_PARAMS = {
         Referer: `${CONFIG.baseUrl}/typo3/main`,
     },
     timeout: REQUEST_PARAMS.timeout,
+    // Inherit the phase=measured tag so backend iteration requests are
+    // gated by the phase-scoped thresholds (see lib/thresholds.js).
+    tags:    REQUEST_PARAMS.tags,
 };
 
 /**
@@ -85,6 +89,7 @@ export function login() {
 
     check(post, {
         'login succeeded': () => landedAuthenticated,
+        ...noSecurityTokenError,
     });
 
     return landedAuthenticated;

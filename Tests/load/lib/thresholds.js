@@ -5,6 +5,15 @@
  * default). Numbers calibrated for the dev sandbox (SQLite + 2-worker
  * FrankenPHP on a developer laptop) — tighten them once a production
  * baseline exists.
+ *
+ * All `http_req_*` gates are tag-scoped to `{phase:measured}`. Iteration
+ * requests inherit that tag automatically via `REQUEST_PARAMS` /
+ * `BACKEND_REQUEST_PARAMS`; `setup()` warmup requests use
+ * `WARMUP_REQUEST_PARAMS` (tag `phase=warmup`) and are intentionally
+ * excluded — Caddy's `tls internal` cert generation and the first worker
+ * boot can produce sub-millisecond TLS-handshake failures on a cold CI
+ * runner, and those samples would otherwise drag `http_req_failed` over
+ * the 1% gate before the test has even started measuring.
  */
 
 // Used by smoke / load / soak scenarios. p95 < 1000 ms covers a healthy
@@ -25,9 +34,9 @@
 // on http_req_failed.rate + checks.rate alone (latency gating belongs
 // on dedicated perf infrastructure, not shared CI).
 export const defaultThresholds = {
-    http_req_duration: ['p(95)<1000', 'p(99)<3000'],
-    http_req_failed:   ['rate<0.01'],
-    checks:            ['rate>0.99'],
+    'http_req_duration{phase:measured}': ['p(95)<1000', 'p(99)<3000'],
+    'http_req_failed{phase:measured}':   ['rate<0.01'],
+    checks:                              ['rate>0.99'],
 };
 
 // Backend (authenticated) requests trip a heavier code path —
@@ -36,9 +45,9 @@ export const defaultThresholds = {
 // under steady load (was 1000 ms; bumped for the same reason as
 // defaultThresholds — see its docblock).
 export const backendThresholds = {
-    http_req_duration: ['p(95)<2000', 'p(99)<3000'],
-    http_req_failed:   ['rate<0.02'],
-    checks:            ['rate>0.98'],
+    'http_req_duration{phase:measured}': ['p(95)<2000', 'p(99)<3000'],
+    'http_req_failed{phase:measured}':   ['rate<0.02'],
+    checks:                              ['rate>0.98'],
 };
 
 // Stress / spike scenarios deliberately drive the server to saturation;
@@ -46,9 +55,9 @@ export const backendThresholds = {
 // The threshold here only catches "completely broken" — high error rate
 // or thresholds we never want to violate even at peak.
 export const saturationThresholds = {
-    http_req_duration: ['p(95)<3000', 'p(99)<10000'],
-    http_req_failed:   ['rate<0.10'],
-    checks:            ['rate>0.90'],
+    'http_req_duration{phase:measured}': ['p(95)<3000', 'p(99)<10000'],
+    'http_req_failed{phase:measured}':   ['rate<0.10'],
+    checks:                              ['rate>0.90'],
 };
 
 // Install-tool failsafe runs as per-request PHP (no worker) — slower
@@ -58,7 +67,7 @@ export const saturationThresholds = {
 // natural latency floor on a cold CI runner already sits in the
 // hundreds of milliseconds, so headroom matters more here.
 export const installToolThresholds = {
-    http_req_duration: ['p(95)<3000', 'p(99)<5000'],
-    http_req_failed:   ['rate<0.01'],
-    checks:            ['rate>0.99'],
+    'http_req_duration{phase:measured}': ['p(95)<3000', 'p(99)<5000'],
+    'http_req_failed{phase:measured}':   ['rate<0.01'],
+    checks:                              ['rate>0.99'],
 };

@@ -42,10 +42,26 @@ export function randomFrontendPath() {
 // Common HTTP request params — TLS skip handles `tls internal` self-signed
 // localhost certs, and a User-Agent helps when grepping FrankenPHP access
 // logs for load-test traffic.
+//
+// Every iteration request inherits `tags: { phase: 'measured' }` so that
+// phase-scoped thresholds in `lib/thresholds.js` only gate the
+// measurement window. setup()/warmup requests use `WARMUP_REQUEST_PARAMS`
+// below (tagged phase=warmup) and are deliberately excluded.
 export const REQUEST_PARAMS = {
     headers: {
         'User-Agent': 'k6-load-test/typo3-frankenphp',
         'Accept':     'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     },
     timeout: '30s',
+    tags:    { phase: 'measured' },
+};
+
+// Use for setup()/warmup http.get calls. Caddy's `tls internal` cert
+// generation and the first FrankenPHP worker boot can TLS-handshake-fail
+// or 5xx on the first few connections to a cold CI runner — those
+// samples are noise, not the test subject. Tagging them out keeps the
+// strict `http_req_failed{phase:measured} < 0.01` gate honest.
+export const WARMUP_REQUEST_PARAMS = {
+    ...REQUEST_PARAMS,
+    tags: { phase: 'warmup' },
 };

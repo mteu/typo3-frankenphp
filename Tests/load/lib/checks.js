@@ -39,6 +39,18 @@ export const looksLikeCaminoPage = {
         typeof r.body === 'string' && r.body.length > 500 && /<title>[^<]+<\/title>/.test(r.body),
 };
 
+// TYPO3 emits this flash message via FormProtection when a backend form
+// submission fails CSRF validation. In a long-running FrankenPHP worker,
+// this is the canary for StateSnapshotService not restoring the
+// FormProtectionFactory's per-session token state — a regression that
+// would silently brick every POST in the backend. Wire this in wherever
+// `noPHPError` is used on an authenticated response.
+export const noSecurityTokenError = {
+    'no CSRF token validation failure': (r) =>
+        typeof r.body === 'string'
+        && !/Validating the security token of this form has failed/i.test(r.body),
+};
+
 // The install-tool failsafe path renders one of two pages depending on
 // whether typo3conf/ENABLE_INSTALL_TOOL exists.
 export const looksLikeInstallTool = {

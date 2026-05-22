@@ -11,7 +11,7 @@
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { CONFIG, REQUEST_PARAMS } from '../lib/config.js';
+import { CONFIG, REQUEST_PARAMS, WARMUP_REQUEST_PARAMS } from '../lib/config.js';
 import { installToolThresholds } from '../lib/thresholds.js';
 import { okStatus, looksLikeInstallTool } from '../lib/checks.js';
 
@@ -36,11 +36,12 @@ export const options = {
  * metrics) keeps the measured window clean.
  */
 export function setup() {
-    // Loop so the warmup hits every worker slot at least once — see
-    // frontend-smoke.js for the full rationale.
-    const path = typeof FRONTEND_PATHS !== 'undefined' ? FRONTEND_PATHS : ['/?__typo3_install'];
-    for (let i = 0; i < 10; i++) {
-        http.get(`${CONFIG.baseUrl}${path[i % path.length]}`, REQUEST_PARAMS);
+    // Exercise the failsafe-boot per-request PHP path once before
+    // measurement so any first-request cert / autoload cost lands in
+    // the warmup window. Tagged phase=warmup via WARMUP_REQUEST_PARAMS
+    // so it's excluded from the phase-scoped threshold gates.
+    for (let i = 0; i < 5; i++) {
+        http.get(`${CONFIG.baseUrl}/?__typo3_install`, WARMUP_REQUEST_PARAMS);
     }
 }
 

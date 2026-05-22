@@ -11,7 +11,7 @@
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { CONFIG, randomFrontendPath, REQUEST_PARAMS } from '../lib/config.js';
+import { CONFIG, FRONTEND_PATHS, randomFrontendPath, REQUEST_PARAMS, WARMUP_REQUEST_PARAMS } from '../lib/config.js';
 import { defaultThresholds } from '../lib/thresholds.js';
 import { okStatus, looksLikeCaminoPage, noPHPError } from '../lib/checks.js';
 
@@ -37,10 +37,11 @@ export const options = {
  */
 export function setup() {
     // Loop so the warmup hits every worker slot at least once — see
-    // frontend-smoke.js for the full rationale.
-    const path = typeof FRONTEND_PATHS !== 'undefined' ? FRONTEND_PATHS : ['/?__typo3_install'];
+    // frontend-smoke.js for the full rationale. Tagged phase=warmup
+    // via WARMUP_REQUEST_PARAMS so it's excluded from the
+    // phase-scoped threshold gates.
     for (let i = 0; i < 10; i++) {
-        http.get(`${CONFIG.baseUrl}${path[i % path.length]}`, REQUEST_PARAMS);
+        http.get(`${CONFIG.baseUrl}${FRONTEND_PATHS[i % FRONTEND_PATHS.length]}`, WARMUP_REQUEST_PARAMS);
     }
 }
 

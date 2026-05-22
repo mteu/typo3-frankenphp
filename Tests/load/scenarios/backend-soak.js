@@ -27,7 +27,7 @@ import { check, sleep } from 'k6';
 import { CONFIG, REQUEST_PARAMS } from '../lib/config.js';
 import { loginOncePerVU, BACKEND_REQUEST_PARAMS } from '../lib/auth.js';
 import { backendThresholds } from '../lib/thresholds.js';
-import { okStatus, looksLikeBackend, noPHPError } from '../lib/checks.js';
+import { okStatus, looksLikeBackend, noPHPError, noSecurityTokenError } from '../lib/checks.js';
 
 export const options = {
     insecureSkipTLSVerify: true,
@@ -47,7 +47,7 @@ export default function () {
     }
 
     const main = http.get(`${CONFIG.baseUrl}/typo3/main`, BACKEND_REQUEST_PARAMS);
-    check(main, { ...okStatus, ...looksLikeBackend, ...noPHPError });
+    check(main, { ...okStatus, ...looksLikeBackend, ...noPHPError, ...noSecurityTokenError });
     sleep(1);
 
     // Cycle the page tree so ContentFetcher's cache.runtime keys would
@@ -56,7 +56,7 @@ export default function () {
     // content (and check failures) within minutes.
     for (const id of [1, 5, 6, 7]) {
         const res = http.get(`${CONFIG.baseUrl}/typo3/module/web/layout?id=${id}`, BACKEND_REQUEST_PARAMS);
-        check(res, { ...okStatus, ...noPHPError });
+        check(res, { ...okStatus, ...noPHPError, ...noSecurityTokenError });
         sleep(0.5);
     }
 }

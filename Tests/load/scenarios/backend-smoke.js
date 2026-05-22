@@ -14,7 +14,7 @@ import { check, sleep } from 'k6';
 import { CONFIG, REQUEST_PARAMS } from '../lib/config.js';
 import { loginOncePerVU, BACKEND_REQUEST_PARAMS } from '../lib/auth.js';
 import { backendThresholds } from '../lib/thresholds.js';
-import { okStatus, looksLikeBackend, noPHPError } from '../lib/checks.js';
+import { okStatus, looksLikeBackend, noPHPError, noSecurityTokenError } from '../lib/checks.js';
 
 export const options = {
     insecureSkipTLSVerify: true,
@@ -34,10 +34,10 @@ export default function () {
     }
 
     const main = http.get(`${CONFIG.baseUrl}/typo3/main`, BACKEND_REQUEST_PARAMS);
-    check(main, { ...okStatus, ...looksLikeBackend, ...noPHPError });
+    check(main, { ...okStatus, ...looksLikeBackend, ...noPHPError, ...noSecurityTokenError });
     sleep(1);
 
     const layout = http.get(`${CONFIG.baseUrl}/typo3/module/web/layout?id=1`, BACKEND_REQUEST_PARAMS);
-    check(layout, { ...okStatus, ...noPHPError });
+    check(layout, { ...okStatus, ...noPHPError, ...noSecurityTokenError });
     sleep(1);
 }
