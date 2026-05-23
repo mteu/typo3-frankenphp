@@ -50,8 +50,15 @@ test('See every module', async ({page}) => {
 
             await expect(page, `module ${mod.id} should not bounce to login`)
                 .not.toHaveURL(/\/typo3\/login/);
+            // Some modules require an in-backend referrer. Direct navigation
+            // to /typo3/module/<id> is wrapped in the BE shell at
+            // /typo3/main (with or without ?redirect=<id>&referrer-refresh=…)
+            // and the module loads into an iframe. The user's default
+            // landing module (typically web_layout) ends up at bare
+            // /typo3/main with no query string at all. All three URL shapes
+            // count as a successful landing.
             await expect(page, `module ${mod.id} should land in /typo3/module/`)
-                .toHaveURL(/\/typo3\/(module|sudo-mode)/);
+                .toHaveURL(/\/typo3\/(module|sudo-mode|main(\?|#|$))/);
         });
     }
 });

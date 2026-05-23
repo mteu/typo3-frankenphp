@@ -16,6 +16,7 @@ use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Context\WorkspaceAspect;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry;
 use TYPO3\CMS\Core\Page\AssetCollector;
@@ -109,33 +110,19 @@ final class StateSnapshotService
 
         // FormProtectionFactory caches BackendFormProtection / FrontendForm-
         // Protection instances in `cache.runtime` keyed ONLY by type
-        // ('backend' / 'frontend' / 'installtool'). It is tempting to wipe
-        // these between requests for cross-session isolation — DON'T.
+        // ('backend' / 'frontend' / 'installtool') — not by user or session.
+        // In worker mode the cache survives across requests, so the first
+        // request's cached instance carries that session's $sessionToken;
+        // any subsequent request from a DIFFERENT user/session reads back
+        // the same instance and tries to validate its tokens against the
+        // wrong session secret → "Validating the security token of this
+        // form has failed." This reproduces reliably when Playwright runs
+        // multiple browser projects in parallel or k6 hammers the worker.
         //
-        // Backend route tokens (the `&token=…` in every backend URL) are
-        // HMACs of `(formName + action + identifier + sessionToken)`. The
-        // `sessionToken` is read by `BackendFormProtection::retrieveSession-
-        // Token()` from the user's session data; if no value exists yet
-        // it generates one and persists it. The first call after login
-        // therefore mints the sessionToken, the cached BFP instance keeps
-        // a reference to it, and UriBuilder uses the same instance to
-        // generate route tokens for the redirect target (e.g. `/typo3/main
-        // ?token=…`). Clearing the runtime cache forces the NEXT request
-        // to re-read the sessionToken from session data — which Symfony
-        // `SessionBackend` lazily flushes — and any race or stale read
-        // produces a different sessionToken, invalidating every backend
-        // route token the user is about to follow. Symptom: post-login
-        // redirect to `/typo3/main?token=…` returns 302 → /typo3/login
-        // (caught `InvalidRequestTokenException`), browsers chase the
-        // loop until "too many redirects" / chrome-error.
-        //
-        // Cross-session isolation in a single-user dev/CI worker isn't a
-        // concern, and the production multi-user case is handled by the
-        // sessionToken being keyed per BE user via session data anyway.
-        // If a future regression demonstrates the original problem this
-        // block was meant to solve, the right fix is to invalidate the
-        // cache entry ONLY when the BE_USER's session ID changed
-        // since the cached instance was created, not on every request.
+        // Closure::bind grants access to the protected `runtimeCache` field
+        // and protected `getIdentifierForType()` method.
+        // FormProtectionFactory cache is cleared in cleanupAfterRequest(),
+        // not here — see that method for the timing reason.
 
         // DI singletons with public state APIs.
         $container->get(PageRenderer::class)->updateState($snapshot->pageRendererState);
@@ -233,6 +220,49 @@ final class StateSnapshotService
             session_write_close();
         }
         $_SESSION = [];
+    }
+
+    /**
+     * Called by worker.php in the `finally` block after each request finishes,
+     * BEFORE the next request's restore() runs. This is the right moment to
+     * drop per-request caches — the response has already been emitted, so any
+     * lingering references the request was holding (BFP instances pointing at
+     * the just-served BE_USER) can safely go away.
+     *
+     * We can't do this in restore() at the start of the next request because
+     * restore() runs *before* TYPO3 boots BE_USER → and BFP::createForType('backend')
+     * stashes references into the cache as a side effect of LoginController and
+     * UriBuilder; if restore() evicts that entry mid-request the entry can be
+     * re-created with a transitional state (newly-created session, ses_data still
+     * empty before persistSessionToken's DB write has settled) that doesn't
+     * match the session row the next request reads back from DB. The visible
+     * symptom is a post-login redirect loop /typo3/main?token=… → /typo3/login,
+     * each iteration adding a "Validating the security token of this form has
+     * failed" flash to the session — until Playwright's "navigate too many
+     * redirects" timeout fires.
+     */
+    public function cleanupAfterRequest(ContainerInterface $container): void
+    {
+        // FormProtectionFactory caches BackendFormProtection / FrontendForm-
+        // Protection instances in `cache.runtime` keyed ONLY by type — not by
+        // user or session. In worker mode the cache survives across requests,
+        // so the first request's cached BFP carries that session's $sessionToken,
+        // and any subsequent request from a DIFFERENT user/session reads back
+        // the same instance and validates its tokens against the wrong session
+        // secret → "Validating the security token of this form has failed."
+        //
+        // Closure::bind grants access to the protected `runtimeCache` field
+        // and protected `getIdentifierForType()` method.
+        if ($container->has(FormProtectionFactory::class)) {
+            $formProtectionFactory = $container->get(FormProtectionFactory::class);
+            \Closure::bind(static function () use ($formProtectionFactory): void {
+                foreach (['installtool', 'frontend', 'backend', 'disabled'] as $type) {
+                    $formProtectionFactory->runtimeCache->remove(
+                        $formProtectionFactory->getIdentifierForType($type),
+                    );
+                }
+            }, null, FormProtectionFactory::class)();
+        }
     }
 
     private function resetGlobals(): void

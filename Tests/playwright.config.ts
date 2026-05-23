@@ -26,14 +26,19 @@ export default defineConfig({
    * other's UC for "last selected sub-view" in modules like Page
    * TSconfig). 2 retries gets the flaky tests across without masking
    * deterministic breakage. */
-  retries: 2,
-  /* Parallel workers — one per browser project (chromium / firefox /
-   * webkit) so each browser's specs run serially against the shared
-   * 2-worker FrankenPHP / SQLite backend. workers > 3 saturates the
-   * backend (page-tree fetchData queues > 90 s); workers < 3 forces
-   * cross-browser serialization for no benefit. Override with
-   * `--workers=N` if your stack tolerates more (or needs less). */
-  workers: 3,
+  retries: 1,
+  /* Serial execution — all specs share the same admin storageState
+   * (auth.setup.ts), so any two concurrent specs hit the same TYPO3
+   * backend session and the same UC table. Under that contention the
+   * backend produces stale CSRF tokens and bounces the iframe through
+   * /typo3/main repeatedly (visibly: quadruply-nested shell with
+   * "Validating the security token of this form has failed" banners in
+   * the leaf, or an empty page-tree with "Navigation loading error").
+   * workers=1 measured faster than workers=2 on this sandbox (~31 s vs
+   * 35–42 s) because the contention overhead exceeds the parallelism
+   * gain. Override with `--workers=N` if you've provisioned per-spec
+   * sessions or scaled up the backend. */
+  workers: 1,
   /* Per-assertion timeout. Default 5 s is too tight under concurrent
    * iframe-heavy load — backend navigations queue at FrankenPHP's
    * 2-worker pool. 15 s eliminates spurious "element not found" flakes
@@ -67,22 +72,9 @@ export default defineConfig({
       name: 'setup',
       testMatch: /.*\.setup\.ts/,
     },
-
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'], storageState: 'playwright/.auth/admin.json' },
-      dependencies: ['setup'],
-    },
-
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'], storageState: 'playwright/.auth/admin.json' },
-      dependencies: ['setup'],
-    },
-
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'], storageState: 'playwright/.auth/admin.json' },
       dependencies: ['setup'],
     },
 

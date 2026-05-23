@@ -16,33 +16,51 @@ import {test, expect} from '@playwright/test';
  * minimum check that proves cache.runtime is being reset.
  */
 test('Web>Layout content elements correspond to the selected page after page-tree clicks', async ({page}) => {
-    await page.goto('/typo3/main');
-    await page.locator('#modulemenu a[data-moduleroute-identifier]').first()
-        .waitFor({state: 'attached', timeout: 15_000});
-    await page.locator('#modulemenu a[data-moduleroute-identifier="web_layout"]').click();
+    // Enter via /typo3/ (not /typo3/main): the trailing-slash path runs the
+    // full backend bootstrap that renders the page-tree pane for tree-aware
+    // modules. /typo3/main can land on a no-tree last-opened module after
+    // which a menuitem JS click only swaps the iframe and the tree pane
+    // never appears.
+    await page.goto('/typo3/');
+    // Use the menubar menuitem (not the raw <a data-moduleroute-identifier>)
+    // — the menuitem has the in-context JS handler. Clicking the raw <a>
+    // triggers TYPO3 14's referrer enforcement and nests list_frame.
+    await page.getByRole('menuitem', {name: 'Layout'}).click();
 
-    const cf = page.locator('iframe[name="list_frame"]').contentFrame();
+    const listFrame = page.locator('iframe[name="list_frame"]');
+    const cf = listFrame.contentFrame();
+
+    // Pin tree locators to .first() — the page-tree component can briefly
+    // render two identical treeitems during init (visible + hidden drawer
+    // copy) which trips strict mode.
+    const treeNode = (id: number) => page.locator(`[role="treeitem"][data-id="${id}"]`).first();
+
+    // Wait for the page-tree pane itself before drilling into treeitems.
+    await page.locator('[role="tree"]').waitFor({state: 'attached', timeout: 15_000});
 
     // Page tree is a Lit web component; treeitems appear once the tree's
     // initial fetchData AJAX resolves. Wait for the root node, then expand
     // the Camino subtree so its children (FAQs, Packing List, etc.) are
     // clickable.
-    const caminoNode = page.locator('[role="treeitem"][data-id="1"]');
+    const caminoNode = treeNode(1);
     await caminoNode.waitFor({state: 'attached', timeout: 15_000});
     if ((await caminoNode.getAttribute('aria-expanded')) !== 'true') {
         await caminoNode.locator('.node-toggle').click();
     }
-    await page.locator('[role="treeitem"][data-id="5"]').waitFor({state: 'attached', timeout: 10_000});
+    await treeNode(5).waitFor({state: 'attached', timeout: 10_000});
 
-    // Click FAQs (uid=5). Wait for one of its distinctive content-element
-    // headers to appear in the iframe.
-    await page.locator('[role="treeitem"][data-id="5"]').click();
+    // Click FAQs (uid=5). Wait for the iframe to actually navigate to id=5
+    // before asserting content — .click() only dispatches the event; the
+    // iframe src flip is the synchronous signal that navigation started.
+    await treeNode(5).click();
+    await expect(listFrame).toHaveAttribute('src', /[?&]id=5(&|$)/, {timeout: 30_000});
     await expect(cf.getByText("What is the Pilgrim", {exact: false}).first())
         .toBeVisible({timeout: 15_000});
 
     // Click Camino Route Comparison (uid=7). Its content must appear AND
     // FAQs' must vanish — otherwise the runtime cache leaked.
-    await page.locator('[role="treeitem"][data-id="7"]').click();
+    await treeNode(7).click();
+    await expect(listFrame).toHaveAttribute('src', /[?&]id=7(&|$)/, {timeout: 30_000});
     await expect(cf.getByText('Elena Vásquez', {exact: false}).first())
         .toBeVisible({timeout: 15_000});
     await expect(cf.getByText("What is the Pilgrim", {exact: false}))

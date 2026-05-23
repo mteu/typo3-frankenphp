@@ -17,7 +17,7 @@ test('System Information shows Worker Mode: Enabled on worker-served requests', 
     await page.locator('#modulemenu a[data-moduleroute-identifier]').first()
         .waitFor({state: 'attached', timeout: 30_000});
 
-    await page.locator('button').filter({hasText: 'System Information'}).first().click();
+    const trigger = page.locator('button').filter({hasText: 'System Information'}).first();
     // Drill structurally into the Worker Mode row inside the System
     // Information dropdown — the markup is `<th>Worker Mode</th><td>Enabled</td>`.
     // This is robust to:
@@ -29,6 +29,13 @@ test('System Information shows Worker Mode: Enabled on worker-served requests', 
     //     ("Enabled ---- 2"), because toContainText is a substring match,
     //   - rejecting "Disabled" since "Disabled" does not contain "Enabled".
     const value = page.locator('th[data-type="title"]:has-text("Worker Mode") + td[data-type="value"]');
-    await expect(value).toBeVisible({timeout: 15_000});
+    // The toolbar dropdown can race-close on the initial click (button JS
+    // not fully bound, focus-blur quirks). Retry open + visibility check
+    // until the dropdown actually stays open. Each toPass iteration toggles
+    // the trigger, so an unlucky close becomes a re-open on the next pass.
+    await expect(async () => {
+        await trigger.click();
+        await expect(value).toBeVisible({timeout: 3_000});
+    }).toPass({timeout: 30_000});
     await expect(value).toContainText('Enabled');
 });

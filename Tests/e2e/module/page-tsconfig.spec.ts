@@ -1,14 +1,33 @@
-import {test, expect} from '@playwright/test';
+import {test, expect, FrameLocator} from '@playwright/test';
+
+/**
+ * Open the "Module action:" dropdown in the iframe and click the named
+ * sub-view link. The dropdown can race-close and the click can land as a
+ * no-op (dropdown closed before the event registered, stale link from a
+ * mid-flight re-render, etc.). Retry the open+click pair until the iframe
+ * actually shows the requested sub-view — verifying delivery alone isn't
+ * enough; we need to verify navigation happened. The sub-view name is a
+ * substring of the resulting H1 in all three sub-views.
+ */
+async function switchSubView(frame: FrameLocator, linkName: string): Promise<void> {
+    await expect(async () => {
+        await frame.getByRole('button', {name: /^Module action:/}).click();
+        await frame.getByRole('link', {name: linkName}).click({timeout: 3_000});
+        await expect(frame.getByRole('heading', {level: 1}))
+            .toContainText(linkName, {timeout: 5_000});
+    }).toPass({timeout: 30_000});
+}
 
 test('Sites -> Page TSconfig', async ({page}) => {
     await page.goto('/typo3/');
     let contentFrame = page.locator('iframe[name="list_frame"]').contentFrame();
 
     await page.getByRole('menuitem', {name: 'Page TSconfig'}).click();
-    // Select the Camino page (uid=1) in the page tree. The original
-    // div.filter({hasText: /^Camino$/}) selector was ambiguous; tree items
-    // are <div role="treeitem" data-id="N" title="id=N - Name">.
-    await page.locator('[role="treeitem"][data-id="1"]').click();
+    // Select the Camino page (uid=1) in the page tree. The page tree
+    // component can briefly render two identical treeitems during init
+    // (visible tree + hidden drawer copy); .first() picks one — both
+    // target the same UI state.
+    await page.getByRole('treeitem', {name: 'Camino'}).first().click();
 
     await page.locator('iframe[name="list_frame"]').waitFor({state: "attached"})
 
@@ -17,26 +36,19 @@ test('Sites -> Page TSconfig', async ({page}) => {
     // (labelled with the current view name — regex matches any of them)
     // to navigate to each known sub-view explicitly.
 
-    // → Pages containing page TSconfig.
-    // First settle on a deterministic H1 (the Camino page tree click above
-    // races against any prior worker's UC state). Wait for *any* page
-    // TSconfig H1 before opening the Module action — otherwise the
-    // dropdown can resolve against a stale iframe DOM under workers > 1.
-    await expect(contentFrame.getByRole('heading', {level: 1})).toBeVisible();
-    await contentFrame.getByRole('button', {name: /^Module action:/}).click();
-    await contentFrame.getByRole('link', {name: 'Pages containing page TSconfig'}).click();
-    await expect(contentFrame.getByRole('heading', {level: 1}))
-        .toContainText('Pages containing page TSconfig');
+    // Settle on the Camino-specific breadcrumb (the page-tree click above
+    // races against any prior worker's UC state). The H1 isn't suitable —
+    // only the "Included page TSconfig" sub-view names the page; the other
+    // two sub-views (Pages containing…, Active page TSconfig) have
+    // page-agnostic H1s. The breadcrumb always reflects the selected page.
+    await expect(contentFrame.getByRole('navigation', {name: 'Breadcrumb'}))
+        .toContainText('Camino');
+
+    // → Pages containing page TSconfig
+    await switchSubView(contentFrame, 'Pages containing page TSconfig');
 
     // → Active page TSconfig
-    await contentFrame.getByRole('button', {name: /^Module action:/}).click();
-    await contentFrame.getByRole('link', {name: 'Active page TSconfig'}).click();
-    // Race-safe: assert the H1 changed first, THEN the body content.
-    // Under parallel workers the iframe nav lags the click — without this
-    // explicit step the body content from the prior "Pages containing
-    // page TSconfig" view was still in DOM when the substring check ran.
-    await expect(contentFrame.getByRole('heading', {level: 1}))
-        .toContainText('Active page TSconfig');
+    await switchSubView(contentFrame, 'Active page TSconfig');
     await expect(contentFrame.locator('body')).toContainText('Constants from site settings');
     // Two "Configuration" tabs (Constants + Setup panels) — pick the first.
     await expect(contentFrame.getByRole('tab', {name: 'Configuration'}).first()).toBeVisible();
@@ -47,8 +59,7 @@ test('Sites -> Page TSconfig', async ({page}) => {
     await expect(contentFrame.getByText('TCEMAIN')).toBeVisible();
 
     // → Included page TSconfig
-    await contentFrame.getByRole('button', {name: /^Module action:/}).click();
-    await contentFrame.getByRole('link', {name: 'Included page TSconfig'}).click();
+    await switchSubView(contentFrame, 'Included page TSconfig');
     await expect(contentFrame.locator('#pagetsconfig-includes-setup-tree-body'))
         .toContainText('pageTsConfig-site-camino');
 });

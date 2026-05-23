@@ -8,6 +8,12 @@ test('Sites -> Setup', async ({ page }) => {
     await expect(contentFrame.getByRole('navigation', { name: 'Breadcrumb' })).toBeVisible();
 
     await contentFrame.getByRole('link', { name: 'Edit site configuration' }).click();
+    // .click() resolves on event dispatch, not on iframe navigation — wait
+    // for the edit form's H1 to render before reaching into its tabs,
+    // otherwise the tabpanel role/name lookup races against a still-loading
+    // iframe.
+    await expect(contentFrame.getByRole('heading', { name: 'camino · Site configuration' }))
+        .toBeVisible({timeout: 30_000});
     await expect(contentFrame.getByRole('tabpanel', { name: 'General' })).toBeVisible();
 
     await contentFrame.getByRole('tab', { name: 'Languages' }).click();

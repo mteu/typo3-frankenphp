@@ -19,22 +19,33 @@ test('Web>List record list corresponds to the selected page after page-tree clic
     await page.locator('#modulemenu a[data-moduleroute-identifier="records"]').click();
 
     const cf = page.locator('iframe[name="list_frame"]').contentFrame();
+    const listFrame = page.locator('iframe[name="list_frame"]');
 
-    const caminoNode = page.locator('[role="treeitem"][data-id="1"]');
+    // The page tree component can briefly render two identical treeitems
+    // during init (visible tree + hidden drawer copy). Always pin to .first()
+    // so getAttribute / click target a single, visible element instead of
+    // race-violating strict mode or hitting a detached copy.
+    const treeNode = (id: number) => page.locator(`[role="treeitem"][data-id="${id}"]`).first();
+
+    const caminoNode = treeNode(1);
     await caminoNode.waitFor({state: 'attached', timeout: 30_000});
     if ((await caminoNode.getAttribute('aria-expanded')) !== 'true') {
         await caminoNode.locator('.node-toggle').click();
     }
-    await page.locator('[role="treeitem"][data-id="5"]').waitFor({state: 'attached', timeout: 10_000});
+    await treeNode(5).waitFor({state: 'attached', timeout: 10_000});
 
-    // Click FAQs (uid=5) — listing should show its content-element headers.
-    await page.locator('[role="treeitem"][data-id="5"]').click();
+    // Click FAQs (uid=5). Wait for the iframe to actually navigate to id=5
+    // before checking content — the click only dispatches an event; the
+    // iframe src flip is the synchronous signal that navigation started.
+    await treeNode(5).click();
+    await expect(listFrame).toHaveAttribute('src', /[?&]id=5(&|$)/, {timeout: 30_000});
     await expect(cf.getByText("What is the Pilgrim", {exact: false}).first())
         .toBeVisible({timeout: 30_000});
 
     // Click Camino Route Comparison (uid=7) — its records appear AND FAQs's
     // must vanish.
-    await page.locator('[role="treeitem"][data-id="7"]').click();
+    await treeNode(7).click();
+    await expect(listFrame).toHaveAttribute('src', /[?&]id=7(&|$)/, {timeout: 30_000});
     await expect(cf.getByText('Elena Vásquez', {exact: false}).first())
         .toBeVisible({timeout: 30_000});
     await expect(cf.getByText("What is the Pilgrim", {exact: false}))
