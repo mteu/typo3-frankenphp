@@ -45,10 +45,17 @@ export const looksLikeCaminoPage = {
 // FormProtectionFactory's per-session token state — a regression that
 // would silently brick every POST in the backend. Wire this in wherever
 // `noPHPError` is used on an authenticated response.
+//
+// Anchor on the BootstrapRenderer's actual flash markup
+// (`<p class="alert-message">…</p>` inside `<div class="alert alert-…">`).
+// The literal sentence also appears as a JSON label-dictionary value
+// (`"error.formProtection.tokenInvalid":"Validating the security…"`)
+// that the backend ships to the client on every authenticated page —
+// matching the raw string would false-positive on every response.
 export const noSecurityTokenError = {
     'no CSRF token validation failure': (r) =>
         typeof r.body === 'string'
-        && !/Validating the security token of this form has failed/i.test(r.body),
+        && !/class="alert-message"\s*>\s*Validating the security token of this form has failed/i.test(r.body),
 };
 
 // The install-tool failsafe path renders one of two pages depending on
