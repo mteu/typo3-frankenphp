@@ -27,7 +27,7 @@ test('docheader buttons do not duplicate after several page-tree navigations', a
 
     // Expand Camino subtree so child pages are clickable.
     const caminoNode = page.locator('[role="treeitem"][data-id="1"]');
-    await caminoNode.waitFor({state: 'attached', timeout: 15_000});
+    await caminoNode.waitFor({state: 'attached', timeout: 15000});
     if ((await caminoNode.getAttribute('aria-expanded')) !== 'true') {
         await caminoNode.locator('.node-toggle').click();
     }

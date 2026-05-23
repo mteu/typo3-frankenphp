@@ -104,22 +104,6 @@ jobs:
       - name: Bootstrap TYPO3 sandbox
         run: bash scripts/setup-typo3.sh
 
-      - name: Force bcrypt for BE admin (CI-only workaround)
-        # `typo3 setup` runs under the shivammathur PHP image which has
-        # libargon2 and writes the admin password as an argon2i hash.
-        # The FrankenPHP worker that serves backend requests is a
-        # different PHP build (Homebrew bottle); if its libargon2
-        # version is incompatible with the one that produced the hash,
-        # every login silently fails with "Your login attempt did not
-        # succeed" (no CSRF flash, no 5xx). Bcrypt is unconditionally
-        # compiled into PHP — re-hashing with it decouples setup-time
-        # PHP from runtime PHP. CI-only; local dev sandbox keeps the
-        # default algo.
-        run: |
-          new_hash=$(php -r 'echo password_hash("Password.1", PASSWORD_BCRYPT);')
-          sqlite3 Build/var/sqlite/cms-*.sqlite \
-              "UPDATE be_users SET password='${new_hash}' WHERE username='admin';"
-
       - name: Regenerate frankenphp config (--force, prod profile)
         # Belt-and-braces: the Composer installer hook (RunFrankenphpInit)
         # should already have produced these files via setup-typo3.sh.
@@ -254,13 +238,6 @@ jobs:
 
       - name: Bootstrap TYPO3 sandbox
         run: bash scripts/setup-typo3.sh
-
-      - name: Force bcrypt for BE admin (CI-only workaround)
-        # See the same-named step in the Playwright job for the why.
-        run: |
-          new_hash=$(php -r 'echo password_hash("Password.1", PASSWORD_BCRYPT);')
-          sqlite3 Build/var/sqlite/cms-*.sqlite \
-              "UPDATE be_users SET password='${new_hash}' WHERE username='admin';"
 
       - name: Regenerate frankenphp config (--force, dev profile)
         # Same belt-and-braces as the Playwright job — defends against
