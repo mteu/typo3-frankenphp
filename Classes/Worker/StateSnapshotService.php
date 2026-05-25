@@ -104,6 +104,12 @@ final class StateSnapshotService
         //     TSConfig>. Same record in a different workspace would otherwise
         //     reuse the previous request's workspace-specific TSConfig, with
         //     wrong field rendering / validation as a result.
+        //   - workspace-service-available-workspaces / -detailed
+        //     (cms-workspaces/Classes/Service/WorkspaceService.php)
+        //     Cached workspace list keyed WITHOUT user ID — user A
+        //     (workspace manager) populates the cache, user B (restricted
+        //     editor) hits the cache and sees workspaces they don't have
+        //     permission for.
         if ($container->has('cache.runtime')) {
             $runtimeCache = $container->get('cache.runtime');
             foreach ([
@@ -113,6 +119,8 @@ final class StateSnapshotService
                 'backendUserAuthenticationFileMountRecords',
                 'generalUtilityXml2Array',
                 'formEngineUtilityTsConfigForTableRow',
+                'workspace-service-available-workspaces',
+                'workspace-service-available-workspaces-detailed',
             ] as $key) {
                 $runtimeCache->remove($key);
             }
@@ -319,6 +327,41 @@ final class StateSnapshotService
             \Closure::bind(static function () use ($menuFactory, $bootMapping): void {
                 $menuFactory->menuTypeToClassMapping = $bootMapping;
             }, null, \TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory::class)();
+        }
+
+        // InMemoryLogWriter (cms-adminpanel) is a SingletonInterface that
+        // accumulates every LogRecord written during a request. The admin
+        // panel's DebugModule renders the array via getLogEntries(). Under
+        // worker mode the array persists across requests, so User B sees
+        // User A's debug output (SQL queries, variable dumps, stack traces).
+        if ($container->has(\TYPO3\CMS\Adminpanel\Log\InMemoryLogWriter::class)) {
+            $logWriter = $container->get(\TYPO3\CMS\Adminpanel\Log\InMemoryLogWriter::class);
+            \Closure::bind(static function () use ($logWriter): void {
+                $logWriter->log = [];
+            }, null, \TYPO3\CMS\Adminpanel\Log\InMemoryLogWriter::class)();
+        }
+
+        // FilePersistenceSlot (cms-form) is a SingletonInterface that
+        // whitelists file-system operations via allowInvocation(). The
+        // whitelist persists: User A's allowed YAML-save path from a form
+        // editor session could let User B's assertFileName() call pass
+        // for a path B shouldn't touch.
+        if ($container->has(\TYPO3\CMS\Form\Slot\FilePersistenceSlot::class)) {
+            $filePersistenceSlot = $container->get(\TYPO3\CMS\Form\Slot\FilePersistenceSlot::class);
+            \Closure::bind(static function () use ($filePersistenceSlot): void {
+                $filePersistenceSlot->allowedInvocations = [];
+            }, null, \TYPO3\CMS\Form\Slot\FilePersistenceSlot::class)();
+        }
+
+        // ResourcePublicationSlot (cms-form) is a SingletonInterface that
+        // accumulates file identifiers added during form-upload processing.
+        // has() checks on subsequent requests would return true for files
+        // uploaded by a previous user.
+        if ($container->has(\TYPO3\CMS\Form\Slot\ResourcePublicationSlot::class)) {
+            $resourceSlot = $container->get(\TYPO3\CMS\Form\Slot\ResourcePublicationSlot::class);
+            \Closure::bind(static function () use ($resourceSlot): void {
+                $resourceSlot->fileIdentifiers = [];
+            }, null, \TYPO3\CMS\Form\Slot\ResourcePublicationSlot::class)();
         }
 
         // PageTitleProviderManager memoizes the resolved page title
