@@ -54,11 +54,11 @@ final class StateSnapshotService
         $this->resetGlobals();
         GeneralUtility::flushInternalRuntimeCaches();
 
-        // Targeted cache.runtime invalidation. Two backend services cache
-        // page-bound data under fixed keys (no page UID), and PHP-FPM clears
-        // cache.runtime at process death so they assume the data is always
-        // current. In worker mode the cache survives and clicking page B in
-        // the page tree returns page A's still-cached content elements.
+        // Targeted cache.runtime invalidation. Several core services cache
+        // user- / page-bound data under fixed keys (no per-user or per-page
+        // parameterization), and PHP-FPM clears cache.runtime at process
+        // death so they assume the data is always fresh. In worker mode the
+        // cache survives and serves stale rows from a previous request.
         //
         // Flushing all of cache.runtime breaks the login flow (something in
         // the auth/SiteFinder/LocalizationFactory chain relies on data
@@ -66,15 +66,29 @@ final class StateSnapshotService
         //
         //   - ContentFetcher_fetchedContentRecords
         //     (cms-backend/View/BackendLayout/ContentFetcher.php)
+        //     Page B's content elements served as Page A's after clicking
+        //     in the page tree.
         //   - backend-layout-view-selected-backend-layouts
         //   - backend-layout-view-selected-combined-identifiers
         //     (cms-backend/View/BackendLayoutView.php)
+        //     Same pattern as ContentFetcher for selected backend layouts.
+        //   - backendUserAuthenticationFileMountRecords
+        //     (cms-core/Classes/Authentication/BackendUserAuthentication.php)
+        //     File mounts of user A leak to user B when both hit the same
+        //     worker — cross-user data exposure.
+        //   - generalUtilityXml2Array
+        //     (cms-core/Classes/Utility/GeneralUtility.php)
+        //     Pure hygiene: unbounded growth across requests for every
+        //     distinct XML payload TYPO3 parses (TCA fragments, plugin
+        //     settings, FlexForm config).
         if ($container->has('cache.runtime')) {
             $runtimeCache = $container->get('cache.runtime');
             foreach ([
                 'ContentFetcher_fetchedContentRecords',
                 'backend-layout-view-selected-backend-layouts',
                 'backend-layout-view-selected-combined-identifiers',
+                'backendUserAuthenticationFileMountRecords',
+                'generalUtilityXml2Array',
             ] as $key) {
                 $runtimeCache->remove($key);
             }
@@ -108,21 +122,61 @@ final class StateSnapshotService
         $context->setAspect('frontend.user', new UserAspect(null));
         $context->setAspect('workspace', new WorkspaceAspect(0));
 
-        // FormProtectionFactory caches BackendFormProtection / FrontendForm-
-        // Protection instances in `cache.runtime` keyed ONLY by type
-        // ('backend' / 'frontend' / 'installtool') — not by user or session.
-        // In worker mode the cache survives across requests, so the first
-        // request's cached instance carries that session's $sessionToken;
-        // any subsequent request from a DIFFERENT user/session reads back
-        // the same instance and tries to validate its tokens against the
-        // wrong session secret → "Validating the security token of this
-        // form has failed." This reproduces reliably when Playwright runs
-        // multiple browser projects in parallel or k6 hammers the worker.
+        // FormProtectionFactory caches BackendFormProtection /
+        // FrontendFormProtection in `cache.runtime` keyed only by type.
+        // In worker mode the cache survives across requests AND
+        // AbstractFormProtection::getSessionToken() memoizes
+        // `$this->sessionToken` per-instance. With multiple FrankenPHP
+        // workers running in parallel, each holds its own cached BFP
+        // with its own memoized session token. Worker A signs a URL
+        // (e.g. list_frame's src) with token TA; the follow-up request
+        // hits worker B, which validates against TB; mismatch → the
+        // URL token is rejected → redirect loop or nested backend
+        // shell, depending on request shape (see
+        // Middleware/EscapeBackendShellInIframe for the iframe case;
+        // k6 load tests hit the same root cause as
+        // "Stopped after 11 redirects" warnings).
         //
-        // Closure::bind grants access to the protected `runtimeCache` field
-        // and protected `getIdentifierForType()` method.
-        // FormProtectionFactory cache is cleared in cleanupAfterRequest(),
-        // not here — see that method for the timing reason.
+        // Evict the 'backend' BFP from the cache so the next
+        // createFromRequest() builds a fresh BFP that re-reads the
+        // session token from BE_USER.getSessionData(). The re-read
+        // is from the (just-loaded) BE_USER's UserSession, which
+        // reflects the committed DB row — all workers converge on
+        // the same token.
+        //
+        // We do NOT evict 'frontend' / 'installtool' / 'disabled':
+        //   - installtool runs in a separate failsafe PHP process,
+        //     never through the worker.
+        //   - frontend BFPs are rarely cached in this code path.
+        //   - 'disabled' is a no-op.
+        if ($container->has(FormProtectionFactory::class)) {
+            $formProtectionFactory = $container->get(FormProtectionFactory::class);
+            \Closure::bind(static function () use ($formProtectionFactory): void {
+                $id = $formProtectionFactory->getIdentifierForType('backend');
+                if (!$formProtectionFactory->runtimeCache->has($id)) {
+                    return;
+                }
+                $bfp = $formProtectionFactory->runtimeCache->get($id);
+                if (!$bfp instanceof \TYPO3\CMS\Core\FormProtection\AbstractFormProtection) {
+                    return;
+                }
+                // Reset only the memoized $sessionToken. We keep the cached
+                // BFP instance (and its $backendUser reference) so the
+                // post-login 303→GET round-trip doesn't race the next
+                // request creating a brand-new BFP with no session token
+                // available yet — that race causes a redirect loop back to
+                // /typo3/login. Clearing $sessionToken forces the next
+                // getSessionToken() call to re-read from
+                // $backendUser->getSessionData(), which sees whichever
+                // ses_data the previous request persisted via
+                // setAndSaveSessionData(). All workers converge on the
+                // same value because the underlying UserSession was just
+                // committed to the DB row.
+                \Closure::bind(static function () use ($bfp): void {
+                    $bfp->sessionToken = null;
+                }, null, \TYPO3\CMS\Core\FormProtection\AbstractFormProtection::class)();
+            }, null, FormProtectionFactory::class)();
+        }
 
         // DI singletons with public state APIs.
         $container->get(PageRenderer::class)->updateState($snapshot->pageRendererState);
@@ -134,6 +188,40 @@ final class StateSnapshotService
         \Closure::bind(static function () use ($flashMessageService): void {
             $flashMessageService->flashMessageQueues = [];
         }, null, FlashMessageService::class)();
+
+        // CSP PolicyRegistry / DirectiveHashCollection are
+        // #[Autoconfigure(public: true)] singletons that accumulate per
+        // request:
+        //   - PolicyRegistry::$mutationCollections (appended via
+        //     appendMutationCollection() from various controllers that
+        //     temporarily widen CSP for the current view).
+        //   - DirectiveHashCollection::$hashValues (appended via
+        //     addInlineHash/addResourceHash/addGenericHashValue from
+        //     PageRenderer / AssetRenderer for every script & style asset
+        //     rendered on the page).
+        // In worker mode both grow unbounded across requests. Independent
+        // of growth, the next response's CSP header carries every
+        // mutation/hash from every prior request — a potential
+        // header-size blowup and a soft information-leak.
+        // NOTE: this does not address the bigger CSP-nonce reuse issue —
+        // see Tests/e2e/module/csp-nonce-uniqueness.spec.ts for that.
+        if ($container->has(\TYPO3\CMS\Core\Security\ContentSecurityPolicy\PolicyRegistry::class)) {
+            $policyRegistry = $container->get(\TYPO3\CMS\Core\Security\ContentSecurityPolicy\PolicyRegistry::class);
+            \Closure::bind(static function () use ($policyRegistry): void {
+                $policyRegistry->mutationCollections = [];
+            }, null, \TYPO3\CMS\Core\Security\ContentSecurityPolicy\PolicyRegistry::class)();
+        }
+        if ($container->has(\TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection::class)) {
+            $directiveHashCollection = $container->get(\TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection::class);
+            \Closure::bind(static function () use ($directiveHashCollection): void {
+                $directiveHashCollection->hashValues = [
+                    'inline' => [],
+                    'resource' => [],
+                    'uri' => [],
+                    'generic' => [],
+                ];
+            }, null, \TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection::class)();
+        }
 
         // Backend DocHeaderComponent and its sub-components (ButtonBar,
         // MenuRegistry) are #[Autoconfigure(public: true)] services — Symfony

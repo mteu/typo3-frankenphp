@@ -27,8 +27,22 @@ test('Web>List record list corresponds to the selected page after page-tree clic
     // race-violating strict mode or hitting a detached copy.
     const treeNode = (id: number) => page.locator(`[role="treeitem"][data-id="${id}"]`).first();
 
+    // Tree fetchData AJAX occasionally fails on cold boot (empty tree
+    // ± "Navigation loading error" alertdialog); one reload + re-click
+    // recovers. Same pattern used in docheader-no-duplication.
+    try {
+        await treeNode(1).waitFor({state: 'attached', timeout: 30_000});
+    } catch {
+        const errorAlert = page.getByRole('alertdialog', {name: 'Navigation loading error'});
+        if (await errorAlert.isVisible().catch(() => false)) {
+            await errorAlert.getByRole('button', {name: 'Close'}).click();
+        }
+        await page.reload();
+        await page.locator('#modulemenu a[data-moduleroute-identifier="records"]').click();
+        await treeNode(1).waitFor({state: 'attached', timeout: 20_000});
+    }
+
     const caminoNode = treeNode(1);
-    await caminoNode.waitFor({state: 'attached', timeout: 30_000});
     if ((await caminoNode.getAttribute('aria-expanded')) !== 'true') {
         await caminoNode.locator('.node-toggle').click();
     }

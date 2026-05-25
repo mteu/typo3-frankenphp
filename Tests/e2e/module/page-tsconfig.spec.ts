@@ -27,7 +27,24 @@ test('Sites -> Page TSconfig', async ({page}) => {
     // component can briefly render two identical treeitems during init
     // (visible tree + hidden drawer copy); .first() picks one — both
     // target the same UI state.
-    await page.getByRole('treeitem', {name: 'Camino'}).first().click();
+    //
+    // The tree's fetchData AJAX can fail on cold boot, leaving the tree
+    // empty (sometimes with a "Navigation loading error" alertdialog).
+    // One reload + re-click recovers — same pattern used in
+    // docheader-no-duplication.spec.ts.
+    const caminoTreeitem = page.getByRole('treeitem', {name: 'Camino'}).first();
+    try {
+        await caminoTreeitem.waitFor({state: 'visible', timeout: 20_000});
+    } catch {
+        const errorAlert = page.getByRole('alertdialog', {name: 'Navigation loading error'});
+        if (await errorAlert.isVisible().catch(() => false)) {
+            await errorAlert.getByRole('button', {name: 'Close'}).click();
+        }
+        await page.reload();
+        await page.getByRole('menuitem', {name: 'Page TSconfig'}).click();
+        await caminoTreeitem.waitFor({state: 'visible', timeout: 20_000});
+    }
+    await caminoTreeitem.click();
 
     await page.locator('iframe[name="list_frame"]').waitFor({state: "attached"})
 

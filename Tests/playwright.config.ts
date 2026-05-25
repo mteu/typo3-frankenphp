@@ -60,6 +60,10 @@ export default defineConfig({
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+    /* Capture a screenshot on failure (visible in the HTML report next to
+     * the failing assertion). `only-on-failure` keeps the artifact small
+     * on green runs while still giving us a frame to diagnose breakage. */
+    screenshot: 'only-on-failure',
   },
 
   /* Configure projects for major browsers */

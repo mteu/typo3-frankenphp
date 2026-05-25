@@ -35,15 +35,26 @@ test('Web>Layout content elements correspond to the selected page after page-tre
     // copy) which trips strict mode.
     const treeNode = (id: number) => page.locator(`[role="treeitem"][data-id="${id}"]`).first();
 
-    // Wait for the page-tree pane itself before drilling into treeitems.
-    await page.locator('[role="tree"]').waitFor({state: 'attached', timeout: 15_000});
-
     // Page tree is a Lit web component; treeitems appear once the tree's
-    // initial fetchData AJAX resolves. Wait for the root node, then expand
-    // the Camino subtree so its children (FAQs, Packing List, etc.) are
-    // clickable.
+    // initial fetchData AJAX resolves. The fetch can occasionally fail on
+    // cold boot, leaving the tree element attached but empty (sometimes
+    // with a "Navigation loading error" alertdialog). One reload +
+    // re-click recovers — same pattern used in docheader-no-duplication.
+    try {
+        await treeNode(1).waitFor({state: 'attached', timeout: 20_000});
+    } catch {
+        const errorAlert = page.getByRole('alertdialog', {name: 'Navigation loading error'});
+        if (await errorAlert.isVisible().catch(() => false)) {
+            await errorAlert.getByRole('button', {name: 'Close'}).click();
+        }
+        await page.reload();
+        await page.getByRole('menuitem', {name: 'Layout'}).click();
+        await treeNode(1).waitFor({state: 'attached', timeout: 20_000});
+    }
+
+    // Expand the Camino subtree so its children (FAQs, Packing List, etc.)
+    // are clickable.
     const caminoNode = treeNode(1);
-    await caminoNode.waitFor({state: 'attached', timeout: 15_000});
     if ((await caminoNode.getAttribute('aria-expanded')) !== 'true') {
         await caminoNode.locator('.node-toggle').click();
     }
