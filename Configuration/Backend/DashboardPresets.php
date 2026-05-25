@@ -32,18 +32,19 @@ return [
         'defaultWidgets' => [
             // FrankenPHP worker pool — primary value of this extension.
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_busy_threads', 'label' => 'Busy PHP threads']],
-            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_busy_workers', 'label' => 'Busy workers']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_queue_depth', 'label' => 'Queue depth']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_ready_workers', 'label' => 'Ready workers']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_total_threads', 'label' => 'Total PHP threads']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_total_workers', 'label' => 'Total workers']],
-            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_worker_request_count', 'label' => 'Worker requests (total)']],
 
             // Caddy HTTP layer — request throughput, distributions.
+            // Requires `servers { metrics }` in the Caddyfile global block;
+            // emitted by InitCommand when --prometheus is set.
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_requests_in_flight', 'label' => 'HTTP requests in flight']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_requests_total', 'label' => 'HTTP requests (total)']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_request_duration_seconds', 'label' => 'HTTP request duration']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_request_size_bytes', 'label' => 'HTTP request size']],
+            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_response_duration_seconds', 'label' => 'HTTP response duration']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_response_size_bytes', 'label' => 'HTTP response size']],
 
             // Go runtime — opcache-bloat / GC pressure detection during soak.

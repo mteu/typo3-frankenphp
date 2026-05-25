@@ -45,16 +45,19 @@ final readonly class PrometheusMetricsWidget implements
     // names: `curl http://localhost:2019/metrics | grep "^# TYPE"`.
     private const array METRIC_CHOICES = [
         'frankenphp_busy_threads'                    => 'frankenphp_busy_threads (gauge)',
-        'frankenphp_busy_workers'                    => 'frankenphp_busy_workers (gauge)',
         'frankenphp_queue_depth'                     => 'frankenphp_queue_depth (gauge)',
         'frankenphp_ready_workers'                   => 'frankenphp_ready_workers (gauge)',
         'frankenphp_total_threads'                   => 'frankenphp_total_threads (counter)',
         'frankenphp_total_workers'                   => 'frankenphp_total_workers (gauge)',
-        'frankenphp_worker_request_count'            => 'frankenphp_worker_request_count (counter)',
+        // Caddy HTTP server metrics. Require `servers { metrics }` in the
+        // Caddyfile global block — without it these families are silently
+        // omitted from /metrics. The InitCommand template emits both
+        // directives when --prometheus is set.
         'caddy_http_requests_in_flight'              => 'caddy_http_requests_in_flight (gauge)',
         'caddy_http_requests_total'                  => 'caddy_http_requests_total (counter)',
         'caddy_http_request_duration_seconds'        => 'caddy_http_request_duration_seconds (histogram)',
         'caddy_http_request_size_bytes'              => 'caddy_http_request_size_bytes (histogram)',
+        'caddy_http_response_duration_seconds'       => 'caddy_http_response_duration_seconds (histogram)',
         'caddy_http_response_size_bytes'             => 'caddy_http_response_size_bytes (histogram)',
         'go_goroutines'                              => 'go_goroutines (gauge)',
         'go_memstats_alloc_bytes'                    => 'go_memstats_alloc_bytes (gauge)',
