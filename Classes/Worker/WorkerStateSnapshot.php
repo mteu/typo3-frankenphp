@@ -14,10 +14,12 @@ final class WorkerStateSnapshot
      * @param array<string, mixed> $pageRendererState
      * @param array<string, mixed> $assetCollectorState
      * @param array<string, mixed> $metaTagRegistryState
+     * @param array<string, class-string> $menuTypeToClassMapping
      */
     public function __construct(
         public readonly array $pageRendererState,
         public readonly array $assetCollectorState,
         public readonly array $metaTagRegistryState,
+        public readonly array $menuTypeToClassMapping,
     ) {}
 }

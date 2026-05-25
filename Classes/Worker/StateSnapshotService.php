@@ -40,10 +40,27 @@ final class StateSnapshotService
 {
     public function capture(ContainerInterface $container): WorkerStateSnapshot
     {
+        // MenuContentObjectFactory holds the TMENU/TMENU_LAYERS/... →
+        // class-string map that gets mutated by extensions calling
+        // `registerMenuType()`. The map is supposed to be set up once
+        // at boot and stay process-stable; we snapshot it post-boot
+        // and restore it per request so extensions registering at
+        // runtime can't accidentally bleed into other requests.
+        $menuFactoryMapping = [];
+        if ($container->has(\TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory::class)) {
+            $menuFactory = $container->get(\TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory::class);
+            $menuFactoryMapping = \Closure::bind(
+                static fn(): array => $menuFactory->menuTypeToClassMapping,
+                null,
+                \TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory::class,
+            )();
+        }
+
         return new WorkerStateSnapshot(
             pageRendererState: $container->get(PageRenderer::class)->getState(),
             assetCollectorState: $container->get(AssetCollector::class)->getState(),
             metaTagRegistryState: $container->get(MetaTagManagerRegistry::class)->getState(),
+            menuTypeToClassMapping: $menuFactoryMapping,
         );
     }
 
@@ -81,6 +98,12 @@ final class StateSnapshotService
         //     Pure hygiene: unbounded growth across requests for every
         //     distinct XML payload TYPO3 parses (TCA fragments, plugin
         //     settings, FlexForm config).
+        //   - formEngineUtilityTsConfigForTableRow
+        //     (cms-backend/Classes/Form/Utility/FormEngineUtility.php)
+        //     Single key whose payload is an accumulating array<"table:uid",
+        //     TSConfig>. Same record in a different workspace would otherwise
+        //     reuse the previous request's workspace-specific TSConfig, with
+        //     wrong field rendering / validation as a result.
         if ($container->has('cache.runtime')) {
             $runtimeCache = $container->get('cache.runtime');
             foreach ([
@@ -89,6 +112,7 @@ final class StateSnapshotService
                 'backend-layout-view-selected-combined-identifiers',
                 'backendUserAuthenticationFileMountRecords',
                 'generalUtilityXml2Array',
+                'formEngineUtilityTsConfigForTableRow',
             ] as $key) {
                 $runtimeCache->remove($key);
             }
@@ -147,6 +171,165 @@ final class StateSnapshotService
             \Closure::bind(static function () use ($uriBuilder): void {
                 $uriBuilder->generated = [];
             }, null, UriBuilder::class)();
+        }
+
+        // FileNameFilter has a single global `protected static
+        // $showHiddenFilesAndFolders` flag that ANY file-tree listing
+        // consults. If a privileged user toggled it ON during their
+        // request (e.g. via a TCA file context-menu operation), the
+        // setting persists in the worker process and the next user —
+        // who may not have permission to see hidden files — sees
+        // `.htaccess`, dot-files, and `fileadmin/.private/` entries
+        // they shouldn't. Reset to the documented default at the
+        // start of every request via the public static setter.
+        \TYPO3\CMS\Core\Resource\Filter\FileNameFilter::setShowHiddenFilesAndFolders(false);
+
+        // MemorySpool is `SingletonInterface` and queues outbound emails
+        // in `$queuedMessages`, flushed in `__destruct()` — which fires
+        // only when the worker process dies, not at end of request.
+        // Under FrankenPHP that means an email queued by request A and
+        // then made un-deliverable (e.g. by an exception before the
+        // controlled flush in a Symfony Messenger handler) sits in the
+        // spool until eventual worker death; if MAX_REQUESTS=500 that
+        // could be hours, and a future flush may send A's message
+        // mid-way through B's request with B's logger / language /
+        // FROM-address context. Drop the queue at end of each
+        // request — production sites that need spool delivery should
+        // use Symfony's filesystem spool, not the in-memory fallback.
+        if ($container->has(\TYPO3\CMS\Core\Mail\MemorySpool::class)) {
+            $spool = $container->get(\TYPO3\CMS\Core\Mail\MemorySpool::class);
+            \Closure::bind(static function () use ($spool): void {
+                $spool->queuedMessages = [];
+            }, null, \TYPO3\CMS\Core\Mail\MemorySpool::class)();
+        }
+
+        // Registry is `SingletonInterface` and caches `sys_registry` DB
+        // rows in `$entries` per namespace, with `$loadedNamespaces`
+        // tracking which namespaces have been hydrated. Under PHP-FPM
+        // the cache dies with the process so an out-of-band write to
+        // sys_registry (scheduler task, other worker, install-tool
+        // maintenance action) is visible on the next request. Under
+        // FrankenPHP the cache persists, so subsequent requests on
+        // the same worker keep returning the pre-write value for
+        // feature flags, install-tool locks, schema version, etc.
+        // Drop the in-memory cache at the start of every request;
+        // the next access reloads the namespace from DB.
+        if ($container->has(\TYPO3\CMS\Core\Registry::class)) {
+            $registry = $container->get(\TYPO3\CMS\Core\Registry::class);
+            \Closure::bind(static function () use ($registry): void {
+                $registry->entries = [];
+                $registry->loadedNamespaces = [];
+            }, null, \TYPO3\CMS\Core\Registry::class)();
+        }
+
+        // Extbase persistence "unit of work" singletons. The class
+        // docblock on Session literally calls itself "a stateful-shared
+        // service". Extbase Bootstrap.resetSingletons() calls
+        // `persistenceManager->persistAll()` at the end of a normal
+        // Extbase request, which DOES clear PersistenceManager's
+        // $addedObjects/$changedObjects/$removedObjects — but only on
+        // the happy path: an exception before persistAll() leaves the
+        // pending unit-of-work alive in the singleton, and the next
+        // request's persistAll() commits it.
+        //
+        // Reset defensively at the start of every worker request. This
+        // is safe even when no Extbase code ran in the previous request
+        // (no-op on empty state) and is the only thing that bounds the
+        // cross-request leak for the failure path.
+        //   - Session.destroy() is the public API, clears
+        //     $identifierMap / $objectMap / $reconstitutedEntities.
+        //   - PersistenceManager.$newObjects is NOT cleared by
+        //     persistAll() even on the happy path — separate leak.
+        //   - Backend's state is set by PersistenceManager.persistAll()
+        //     and never re-cleared, so it lingers after commit too.
+        if ($container->has(\TYPO3\CMS\Extbase\Persistence\Generic\Session::class)) {
+            $container->get(\TYPO3\CMS\Extbase\Persistence\Generic\Session::class)
+                ->destroy();
+        }
+        if ($container->has(\TYPO3\CMS\Extbase\Persistence\Generic\PersistenceManager::class)) {
+            $persistenceManager = $container->get(\TYPO3\CMS\Extbase\Persistence\Generic\PersistenceManager::class);
+            \Closure::bind(static function () use ($persistenceManager): void {
+                $persistenceManager->newObjects = [];
+                $persistenceManager->addedObjects = new \TYPO3\CMS\Extbase\Persistence\ObjectStorage();
+                $persistenceManager->changedObjects = new \TYPO3\CMS\Extbase\Persistence\ObjectStorage();
+                $persistenceManager->removedObjects = new \TYPO3\CMS\Extbase\Persistence\ObjectStorage();
+            }, null, \TYPO3\CMS\Extbase\Persistence\Generic\PersistenceManager::class)();
+        }
+        if ($container->has(\TYPO3\CMS\Extbase\Persistence\Generic\Backend::class)) {
+            $extbaseBackend = $container->get(\TYPO3\CMS\Extbase\Persistence\Generic\Backend::class);
+            \Closure::bind(static function () use ($extbaseBackend): void {
+                $extbaseBackend->aggregateRootObjects = new \TYPO3\CMS\Extbase\Persistence\ObjectStorage();
+                $extbaseBackend->deletedEntities = new \TYPO3\CMS\Extbase\Persistence\ObjectStorage();
+                $extbaseBackend->changedEntities = new \TYPO3\CMS\Extbase\Persistence\ObjectStorage();
+                $extbaseBackend->visitedDuringPersistence = new \TYPO3\CMS\Extbase\Persistence\ObjectStorage();
+            }, null, \TYPO3\CMS\Extbase\Persistence\Generic\Backend::class)();
+        }
+
+        // Extbase ConfigurationManager caches plugin TypoScript config in
+        // `$configuration` and `$feConfigCache`, keyed by extName.pluginName.
+        // Two pages rendering the SAME plugin with DIFFERENT TypoScript
+        // overrides (e.g. settings.limit) would otherwise see the first
+        // page's settings on the second render — wrong list lengths,
+        // wrong storage PIDs, etc.
+        if ($container->has(\TYPO3\CMS\Extbase\Configuration\ConfigurationManager::class)) {
+            $extbaseConfigManager = $container->get(\TYPO3\CMS\Extbase\Configuration\ConfigurationManager::class);
+            \Closure::bind(static function () use ($extbaseConfigManager): void {
+                $extbaseConfigManager->configuration = [];
+                $extbaseConfigManager->feConfigCache = [];
+            }, null, \TYPO3\CMS\Extbase\Configuration\ConfigurationManager::class)();
+        }
+
+        // Extbase CacheService is `SingletonInterface` and uses a stack
+        // (`$cacheTagStack`) + an associated `$clearCacheForTables` array
+        // to batch cache-invalidation requests. If a request pushes onto
+        // the stack but throws before the matching `clearCachesOfRegisteredPageIds()`
+        // pop, the leftover scope is committed in the next request's
+        // invalidation — wrong pages cleared, valid caches dropped.
+        if ($container->has(\TYPO3\CMS\Extbase\Service\CacheService::class)) {
+            $cacheService = $container->get(\TYPO3\CMS\Extbase\Service\CacheService::class);
+            \Closure::bind(static function () use ($cacheService): void {
+                $cacheService->clearCacheForTables = [];
+                $cacheService->cacheTagStack = new \SplStack();
+            }, null, \TYPO3\CMS\Extbase\Service\CacheService::class)();
+        }
+
+        // Extbase ValidatorResolver caches the (recursively-built)
+        // ConjunctionValidator for each model class in
+        // `$baseValidatorConjunctions`. For static TCA / annotations
+        // the conjunction is stable across requests, so the cache
+        // would be safe IF nothing else could mutate it — but
+        // extensions may register dynamic validators per request,
+        // and the merged conjunction then leaks into other requests
+        // for the same model class. Reset to force rebuild from the
+        // current set of registrations on first access.
+        if ($container->has(\TYPO3\CMS\Extbase\Validation\ValidatorResolver::class)) {
+            $validatorResolver = $container->get(\TYPO3\CMS\Extbase\Validation\ValidatorResolver::class);
+            \Closure::bind(static function () use ($validatorResolver): void {
+                $validatorResolver->baseValidatorConjunctions = [];
+            }, null, \TYPO3\CMS\Extbase\Validation\ValidatorResolver::class)();
+        }
+
+        // MenuContentObjectFactory's TMENU-type → class-string map is
+        // snapshotted at boot (see capture()) and restored here so a
+        // mid-request `registerMenuType()` from one request can't
+        // override another request's menu rendering.
+        if ($container->has(\TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory::class)) {
+            $menuFactory = $container->get(\TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory::class);
+            $bootMapping = $snapshot->menuTypeToClassMapping;
+            \Closure::bind(static function () use ($menuFactory, $bootMapping): void {
+                $menuFactory->menuTypeToClassMapping = $bootMapping;
+            }, null, \TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory::class)();
+        }
+
+        // PageTitleProviderManager memoizes the resolved page title
+        // per provider class in `$pageTitleCache`. Without this reset,
+        // a provider that returned "About" for page X in one request
+        // and would normally return empty for page Y in the next
+        // re-emits "About" via the empty-fallback at line 60 of the
+        // class. Public reset API exists.
+        if ($container->has(\TYPO3\CMS\Core\PageTitle\PageTitleProviderManager::class)) {
+            $container->get(\TYPO3\CMS\Core\PageTitle\PageTitleProviderManager::class)
+                ->setPageTitleCache([]);
         }
 
         // DI singletons with public state APIs.
