@@ -86,6 +86,7 @@ generate_composer_json() {
         "typo3/cms-lowlevel": "${TYPO3_VERSION}",
         "typo3/cms-tstemplate": "${TYPO3_VERSION}",
         "typo3/cms-impexp": "${TYPO3_VERSION}",
+        "typo3/cms-beuser": "${TYPO3_VERSION}",
         "typo3/theme-camino": "${TYPO3_VERSION}"
     },
     "repositories": [
@@ -95,12 +96,20 @@ generate_composer_json() {
         "allow-plugins": {
             "typo3/cms-composer-installers": true,
             "typo3/class-alias-loader": true,
-            "helhum/dotenv-connector": true
+            "helhum/dotenv-connector": true,
+            "cweagans/composer-patches": true
         },
         "sort-packages": true,
         "vendor-dir": "vendor"
     },
-    "extra": { "typo3/cms": { "web-dir": "public" } }
+    "extra": {
+      "typo3/cms": { "web-dir": "public" },
+      "patches": {
+          "typo3/cms-core": {
+              "FormProtectionFactory: session-aware cache key for worker-mode safety (https://github.com/ochorocho/typo3-frankenphp)": "../Patches/cms-core-form-protection-factory-session-aware-cache.patch"
+          }
+      }
+    }
 }
 EOF
     printf '%s\n' "${TYPO3_VERSION}" > "${TYPO3_VERSION_MARKER}"
