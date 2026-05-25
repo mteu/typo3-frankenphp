@@ -38,7 +38,7 @@ export default defineConfig({
    * 35–42 s) because the contention overhead exceeds the parallelism
    * gain. Override with `--workers=N` if you've provisioned per-spec
    * sessions or scaled up the backend. */
-  workers: 1,
+  workers: 3,
   /* Per-assertion timeout. Default 5 s is too tight under concurrent
    * iframe-heavy load — backend navigations queue at FrankenPHP's
    * 2-worker pool. 15 s eliminates spurious "element not found" flakes
