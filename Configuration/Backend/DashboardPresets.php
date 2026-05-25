@@ -37,15 +37,13 @@ return [
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_total_threads', 'label' => 'Total PHP threads']],
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'frankenphp_total_workers', 'label' => 'Total workers']],
 
-            // Caddy HTTP layer — request throughput, distributions.
-            // Requires `servers { metrics }` in the Caddyfile global block;
-            // emitted by InitCommand when --prometheus is set.
-            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_requests_in_flight', 'label' => 'HTTP requests in flight']],
-            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_requests_total', 'label' => 'HTTP requests (total)']],
-            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_request_duration_seconds', 'label' => 'HTTP request duration']],
-            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_request_size_bytes', 'label' => 'HTTP request size']],
-            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_response_duration_seconds', 'label' => 'HTTP response duration']],
-            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_http_response_size_bytes', 'label' => 'HTTP response size']],
+            // Caddy admin endpoint + process-level metrics (always available).
+            // The legacy caddy_http_* per-server families were removed in
+            // Caddy v2.11+ in favor of OpenTelemetry-based observability.
+            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'caddy_admin_http_requests_total', 'label' => 'Admin endpoint requests']],
+            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'process_resident_memory_bytes', 'label' => 'Process RSS']],
+            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'process_cpu_seconds_total', 'label' => 'Process CPU seconds']],
+            ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'process_open_fds', 'label' => 'Open file descriptors']],
 
             // Go runtime — opcache-bloat / GC pressure detection during soak.
             ['identifier' => 'frankenphp-prometheus-metrics', 'settings' => ['metric' => 'go_goroutines', 'label' => 'Goroutines']],

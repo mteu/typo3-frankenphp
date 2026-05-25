@@ -271,15 +271,14 @@ class InitCommand extends Command
         // metrics-only listener via $CADDY_EXTRA_CONFIG, e.g.
         //   :2020 { metrics }
         //
-        // Two directives needed for full coverage:
-        //   - `metrics` (global) exposes admin + Go runtime + FrankenPHP
-        //     worker pool metrics on /metrics.
-        //   - `servers { metrics }` wires the per-HTTP-server counters
-        //     (caddy_http_requests_total, _duration_seconds, _in_flight,
-        //     _size_bytes). Without it the HTTP-layer families never
-        //     appear at the endpoint, even after live traffic.
+        // `metrics` (global) exposes admin + Go runtime + FrankenPHP
+        // worker pool metrics on the admin endpoint /metrics.
+        // NOTE: Caddy v2.11+ removed the legacy per-HTTP-server
+        // caddy_http_* families (`servers { metrics }`) in favour of
+        // OpenTelemetry-based observability. Only admin, Go, process,
+        // and FrankenPHP families are available via Prometheus scrape.
         $metricsGlobal = $prometheus
-            ? "\n\t# Prometheus metrics — enables /metrics on the Caddy admin\n\t# endpoint at http://localhost:{\$METRICS_PORT:2019}/metrics.\n\t# Server-side scrapers (Prometheus, curl, k6) reach it directly;\n\t# browsers cannot — Caddy admin rejects requests with no Origin\n\t# header (CSRF guard).\n\t#\n\t# `metrics` exposes admin + Go + FrankenPHP worker families;\n\t# `servers { metrics }` adds the per-HTTP-server caddy_http_*\n\t# counters (without it those families never appear).\n\tadmin localhost:{\$METRICS_PORT:2019}\n\tmetrics\n\tservers {\n\t\tmetrics\n\t}\n"
+            ? "\n\t# Prometheus metrics — enables /metrics on the Caddy admin\n\t# endpoint at http://localhost:{\$METRICS_PORT:2019}/metrics.\n\t# Server-side scrapers (Prometheus, curl, k6) reach it directly;\n\t# browsers cannot — Caddy admin rejects requests with no Origin\n\t# header (CSRF guard).\n\tadmin localhost:{\$METRICS_PORT:2019}\n\tmetrics\n"
             : '';
 
         // The install-tool routing block is identical across profiles —

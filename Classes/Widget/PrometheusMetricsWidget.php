@@ -49,16 +49,12 @@ final readonly class PrometheusMetricsWidget implements
         'frankenphp_ready_workers'                   => 'frankenphp_ready_workers (gauge)',
         'frankenphp_total_threads'                   => 'frankenphp_total_threads (counter)',
         'frankenphp_total_workers'                   => 'frankenphp_total_workers (gauge)',
-        // Caddy HTTP server metrics. Require `servers { metrics }` in the
-        // Caddyfile global block — without it these families are silently
-        // omitted from /metrics. The InitCommand template emits both
-        // directives when --prometheus is set.
-        'caddy_http_requests_in_flight'              => 'caddy_http_requests_in_flight (gauge)',
-        'caddy_http_requests_total'                  => 'caddy_http_requests_total (counter)',
-        'caddy_http_request_duration_seconds'        => 'caddy_http_request_duration_seconds (histogram)',
-        'caddy_http_request_size_bytes'              => 'caddy_http_request_size_bytes (histogram)',
-        'caddy_http_response_duration_seconds'       => 'caddy_http_response_duration_seconds (histogram)',
-        'caddy_http_response_size_bytes'             => 'caddy_http_response_size_bytes (histogram)',
+        // Caddy admin endpoint counter (always exposed).
+        'caddy_admin_http_requests_total'            => 'caddy_admin_http_requests_total (counter)',
+        // Process-level metrics — available on all platforms.
+        'process_resident_memory_bytes'              => 'process_resident_memory_bytes (gauge)',
+        'process_cpu_seconds_total'                  => 'process_cpu_seconds_total (counter)',
+        'process_open_fds'                           => 'process_open_fds (gauge)',
         'go_goroutines'                              => 'go_goroutines (gauge)',
         'go_memstats_alloc_bytes'                    => 'go_memstats_alloc_bytes (gauge)',
         'go_memstats_heap_alloc_bytes'               => 'go_memstats_heap_alloc_bytes (gauge)',
