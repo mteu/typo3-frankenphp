@@ -213,6 +213,44 @@ To regenerate `Caddyfile` / `.env` / `php.ini` / `public/worker.php` after switc
 cd Build && vendor/bin/typo3 frankenphp:init --no-interaction --force
 ```
 
+### Run with Docker (no native FrankenPHP / Composer / PHP needed)
+
+If you'd rather not install PHP, Composer, `sqlite3`, and the `frankenphp` binary on your host, a Docker Compose
+setup is provided that runs everything in containers, backed by **MariaDB** instead of SQLite:
+
+```bash
+docker compose up --build
+```
+
+- Backend:  https://localhost:8443/typo3 (self-signed cert)
+- Frontend: http://localhost:8080
+- Login:    `admin` / `Password.1`
+
+The first boot is slow — it fetches the images, provisions the FrankenPHP image, downloads all of TYPO3, and
+runs `typo3 setup`. Subsequent `docker compose up` runs skip every already-completed step and start immediately.
+
+Amend the configuration to your needs:
+
+| Concern | Where to change it |
+|---------|--------------------|
+| Ports | `HTTP_PORT` / `HTTPS_PORT` in `docker-compose.yml` (or a Compose-level `.env`). Defaults: `8080` / `8443`. |
+| TYPO3 version | `TYPO3_VERSION` in `docker-compose.yml` (any Composer constraint, e.g. `15.*@dev`). |
+| Worker pool | `FRANKENPHP_WORKER_COUNT` / `MAX_REQUESTS` in `docker-compose.yml`. |
+| DB / admin creds | `TYPO3_DB_*` / `TYPO3_SETUP_*` in `docker-compose.yml`. |
+| Added PHP extensions | `docker/Dockerfile`. |
+
+To rebuild from scratch (e.g. after changing `TYPO3_VERSION`), wipe the named volumes first:
+
+```bash
+docker compose down -v && docker compose up --build
+```
+
+> [!NOTE]
+> GraphicsMagicks or ImageMagick is not installed with the docker image, so image processing is disabled
+> (thumbnails won't render). This is fine for trying out worker mode. Simply add the package to `docker/Dockerfile` if
+> you need it. The Docker path uses MariaDB, whereas the native `scripts/setup-typo3.sh` path uses SQLite — the two
+> sandboxes are independent.
+
 ### Static analysis & code style
 
 Dev dependencies are pinned in `Build/composer.json`, not the root package — run the tools from inside `Build/`:

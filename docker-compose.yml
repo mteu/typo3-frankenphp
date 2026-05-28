@@ -1,0 +1,70 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ../mteu-typo3-frankenphp/docker/Dockerfile
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/entrypoint.sh"]
+    ports:
+      - "${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
+      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
+    volumes:
+      # Extension source (this repo) — symlinked into the TYPO3 project at
+      # /app/vendor/ochorocho/frankenphp, so edits here are picked up live.
+      - .:/src
+      # Generated throwaway TYPO3 project (composer.json, vendor/, public/,
+      # config/). A named volume keeps it isolated from the host and from the
+      # SQLite Build/ sandbox created by scripts/setup-typo3.sh.
+      - app_data:/app
+    environment:
+      EXT_DIR: /src
+      BUILD_DIR: /app
+      # Pin the TYPO3 version the sandbox installs (any Composer constraint).
+      TYPO3_VERSION: "^14.3"
+
+      # Caddy / FrankenPHP — read via {$VAR:default} placeholders in the
+      # generated Caddyfile. Override by setting these in a Compose-level .env
+      # file (Docker Compose .env, NOT TYPO3's .env).
+      SERVER_NAME: localhost
+      HTTP_PORT: ${HTTP_PORT:-8080}
+      HTTPS_PORT: ${HTTPS_PORT:-8443}
+      FRANKENPHP_WORKER_COUNT: 2
+      MAX_REQUESTS: 500
+
+      # TYPO3 — read by `typo3 setup` (first run) and helhum/dotenv-connector
+      # (every request). These take precedence over the generated .env.
+      TYPO3_CONTEXT: Development
+      TYPO3_PROJECT_NAME: typo3
+      TYPO3_SERVER_TYPE: other
+      TYPO3_DB_DRIVER: mysqli
+      TYPO3_DB_HOST: db
+      TYPO3_DB_PORT: 3306
+      TYPO3_DB_DBNAME: typo3
+      TYPO3_DB_USERNAME: typo3
+      TYPO3_DB_PASSWORD: typo3
+      TYPO3_SETUP_ADMIN_USERNAME: admin
+      TYPO3_SETUP_ADMIN_PASSWORD: Password.1
+      TYPO3_SETUP_ADMIN_EMAIL: admin@example.com
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: typo3
+      MARIADB_USER: typo3
+      MARIADB_PASSWORD: typo3
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  app_data:
+  db_data:
