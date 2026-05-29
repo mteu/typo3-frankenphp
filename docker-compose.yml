@@ -2,7 +2,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: ../mteu-typo3-frankenphp/docker/Dockerfile
+      dockerfile: docker/Dockerfile
     restart: unless-stopped
     entrypoint: ["/usr/local/bin/entrypoint.sh"]
     ports:
