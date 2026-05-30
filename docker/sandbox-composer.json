@@ -26,6 +26,7 @@
         "typo3/cms-seo": "${TYPO3_VERSION}",
         "typo3/cms-setup": "${TYPO3_VERSION}",
         "typo3/cms-tstemplate": "${TYPO3_VERSION}",
+        "typo3/cms-impexp": "${TYPO3_VERSION}",
         "typo3/cms-workspaces": "${TYPO3_VERSION}",
         "typo3/theme-camino": "${TYPO3_VERSION}"
     },
