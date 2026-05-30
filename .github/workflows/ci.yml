@@ -346,13 +346,13 @@ jobs:
         run: docker compose up --build -d
 
       - name: Wait for the backend
-        # Poll the mapped HTTPS port (8443 by default). `-f` makes curl exit
+        # Poll the mapped HTTPS port (8885 by default). `-f` makes curl exit
         # non-zero on 4xx/5xx so a container that's up but serving 500s
         # doesn't satisfy the gate. Allow up to ~10 min for the first-run
         # composer install + TYPO3 setup against MariaDB.
         run: |
           for i in $(seq 1 120); do
-            if curl -fsk -o /dev/null https://localhost:8443/typo3/login; then
+            if curl -fsk -o /dev/null https://localhost:8885/typo3/login; then
               echo "TYPO3 backend is up after $((i * 5))s"
               exit 0
             fi
@@ -368,7 +368,7 @@ jobs:
         # the worker booted HttpApplication (not a failsafe install fallback).
         # @todo: Extract information from systemInformation bar for certainty
         run: |
-          curl -fsk https://localhost:8443/typo3/login | grep -qi 'typo3' \
+          curl -fsk https://localhost:8885/typo3/login | grep -qi 'typo3' \
             && echo "Backend login page rendered by the worker."
 
       - name: Dump compose logs

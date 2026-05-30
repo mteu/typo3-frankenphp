@@ -216,28 +216,38 @@ cd Build && vendor/bin/typo3 frankenphp:init --no-interaction --force
 ### Run with Docker (no native FrankenPHP / Composer / PHP needed)
 
 If you'd rather not install PHP, Composer, `sqlite3`, and the `frankenphp` binary on your host, a Docker Compose
-setup is provided that runs everything in containers, backed by **MariaDB** instead of SQLite:
-
-```bash
-docker compose up --build
-```
-
-- Backend:  https://localhost:8443/typo3 (self-signed cert)
-- Frontend: http://localhost:8080
-- Login:    `admin` / `Password.1`
+setup is provided that runs everything in containers, backed by **MariaDB** instead of SQLite.
 
 The first boot is slow — it fetches the images, provisions the FrankenPHP image, downloads all of TYPO3, and
-runs `typo3 setup`. Subsequent `docker compose up` runs skip every already-completed step and start immediately.
+runs `typo3 setup`. 
+
+```bash
+# Run interactively
+docker compose up --build
+
+# Run detached and wait for FrankenPHP to become healthy
+docker compose up -d --build --wait
+```
+
+Subsequent `docker compose up` runs skip every already-completed step and start immediately.
+
+Once the `frankenphp-app` became healthy, open the app in your browser:
+
+- **Backend**:  https://localhost:8885/typo3 (Login with `admin` / `Password.1`)
+  > Your browser will warn about the self-signed certificate. Click through ("Advanced → Proceed") or use `curl -k` to
+  > bypass it.
+- **Frontend**: http://localhost:8888/
+  > The frontend won't have anything meaningful (e.g. site configuration) in this sandbox, yet.
 
 Amend the configuration to your needs:
 
-| Concern | Where to change it |
-|---------|--------------------|
-| Ports | `HTTP_PORT` / `HTTPS_PORT` in `docker-compose.yml` (or a Compose-level `.env`). Defaults: `8080` / `8443`. |
-| TYPO3 version | `TYPO3_VERSION` in `docker-compose.yml` (any Composer constraint, e.g. `15.*@dev`). |
-| Worker pool | `FRANKENPHP_WORKER_COUNT` / `MAX_REQUESTS` in `docker-compose.yml`. |
-| DB / admin creds | `TYPO3_DB_*` / `TYPO3_SETUP_*` in `docker-compose.yml`. |
-| Added PHP extensions | `docker/Dockerfile`. |
+| Concern              | Where to change it                                                                                         |
+|----------------------|------------------------------------------------------------------------------------------------------------|
+| Ports                | `HTTP_PORT` / `HTTPS_PORT` in `docker-compose.yml` (or a Compose-level `.env`). Defaults: `8888` / `8885`. |
+| TYPO3 version        | `TYPO3_VERSION` in `docker-compose.yml` (any Composer constraint, e.g. `15.*@dev`).                        |
+| Worker pool          | `FRANKENPHP_WORKER_COUNT` / `MAX_REQUESTS` in `docker-compose.yml`.                                        |
+| DB / admin creds     | `TYPO3_DB_*` / `TYPO3_SETUP_*` in `docker-compose.yml`.                                                    |
+| Added PHP extensions | `docker/Dockerfile`.                                                                                       |
 
 To rebuild from scratch (e.g. after changing `TYPO3_VERSION`), wipe the named volumes first:
 

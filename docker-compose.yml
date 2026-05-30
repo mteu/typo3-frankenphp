@@ -6,8 +6,8 @@ services:
     restart: unless-stopped
     entrypoint: ["/usr/local/bin/entrypoint.sh"]
     ports:
-      - "${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
-      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
+      - "${HTTP_PORT:-8888}:${HTTP_PORT:-8888}"
+      - "${HTTPS_PORT:-8885}:${HTTPS_PORT:-8885}"
     volumes:
       # Extension source (this repo) — symlinked into the TYPO3 project at
       # /app/vendor/ochorocho/frankenphp, so edits here are picked up live.
@@ -24,10 +24,10 @@ services:
 
       # Caddy / FrankenPHP — read via {$VAR:default} placeholders in the
       # generated Caddyfile. Override by setting these in a Compose-level .env
-      # file (Docker Compose .env, NOT TYPO3's .env).
+      # file (Docker Compose .env, NOT TYPO3's env).
       SERVER_NAME: localhost
-      HTTP_PORT: ${HTTP_PORT:-8080}
-      HTTPS_PORT: ${HTTPS_PORT:-8443}
+      HTTP_PORT: ${HTTP_PORT:-8888}
+      HTTPS_PORT: ${HTTPS_PORT:-8885}
       FRANKENPHP_WORKER_COUNT: 2
       MAX_REQUESTS: 500
 

@@ -51,5 +51,5 @@ if [ ! -f config/system/settings.php ]; then
     rm -rf var/cache
 fi
 
-log "Starting FrankenPHP (HTTP :${HTTP_PORT:-8080}, HTTPS :${HTTPS_PORT:-8443}) ..."
+log "Starting FrankenPHP (HTTP :${HTTP_PORT:-8888}, HTTPS :${HTTPS_PORT:-8885}) ..."
 exec frankenphp run -c Caddyfile
