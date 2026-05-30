@@ -255,12 +255,6 @@ To rebuild from scratch (e.g. after changing `TYPO3_VERSION`), wipe the named vo
 docker compose down -v && docker compose up --build
 ```
 
-> [!NOTE]
-> GraphicsMagicks or ImageMagick is not installed with the docker image, so image processing is disabled
-> (thumbnails won't render). This is fine for trying out worker mode. Simply add the package to `docker/Dockerfile` if
-> you need it. The Docker path uses MariaDB, whereas the native `scripts/setup-typo3.sh` path uses SQLite — the two
-> sandboxes are independent.
-
 ### Static analysis & code style
 
 Dev dependencies are pinned in `Build/composer.json`, not the root package — run the tools from inside `Build/`:
