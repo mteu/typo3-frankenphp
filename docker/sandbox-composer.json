@@ -1,0 +1,55 @@
+{
+    "name": "ochorocho/typo3-frankenphp-docker",
+    "description": "Dockerized TYPO3 sandbox for the ochorocho/frankenphp extension.",
+    "type": "project",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": "^8.3",
+        "ochorocho/frankenphp": "@dev",
+        "typo3/cms-adminpanel": "${TYPO3_VERSION}",
+        "typo3/cms-backend": "${TYPO3_VERSION}",
+        "typo3/cms-belog": "${TYPO3_VERSION}",
+        "typo3/cms-beuser": "${TYPO3_VERSION}",
+        "typo3/cms-core": "${TYPO3_VERSION}",
+        "typo3/cms-dashboard": "${TYPO3_VERSION}",
+        "typo3/cms-extbase": "${TYPO3_VERSION}",
+        "typo3/cms-extensionmanager": "${TYPO3_VERSION}",
+        "typo3/cms-felogin": "${TYPO3_VERSION}",
+        "typo3/cms-filelist": "${TYPO3_VERSION}",
+        "typo3/cms-fluid": "${TYPO3_VERSION}",
+        "typo3/cms-fluid-styled-content": "${TYPO3_VERSION}",
+        "typo3/cms-form": "${TYPO3_VERSION}",
+        "typo3/cms-frontend": "${TYPO3_VERSION}",
+        "typo3/cms-info": "${TYPO3_VERSION}",
+        "typo3/cms-install": "${TYPO3_VERSION}",
+        "typo3/cms-lowlevel": "${TYPO3_VERSION}",
+        "typo3/cms-seo": "${TYPO3_VERSION}",
+        "typo3/cms-setup": "${TYPO3_VERSION}",
+        "typo3/cms-tstemplate": "${TYPO3_VERSION}",
+        "typo3/cms-impexp": "${TYPO3_VERSION}",
+        "typo3/cms-workspaces": "${TYPO3_VERSION}",
+        "typo3/theme-camino": "${TYPO3_VERSION}"
+    },
+    "repositories": [
+        { "type": "path", "url": "${EXT_DIR}", "options": { "symlink": true } }
+    ],
+    "config": {
+        "allow-plugins": {
+            "typo3/cms-composer-installers": true,
+            "typo3/class-alias-loader": true,
+            "helhum/dotenv-connector": true,
+            "cweagans/composer-patches": true
+        },
+        "sort-packages": true,
+        "vendor-dir": "vendor"
+    },
+    "extra": {
+        "typo3/cms": { "web-dir": "public" },
+        "composer-exit-on-patch-failure": true,
+        "patches": {
+            "typo3/cms-core": {
+                "FormProtectionFactory: session-aware cache key for worker-mode safety": "vendor/ochorocho/frankenphp/Patches/cms-core-form-protection-factory-session-aware-cache.patch"
+            }
+        }
+    }
+}
